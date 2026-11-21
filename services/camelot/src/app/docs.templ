@@ -1,0 +1,302 @@
+package app
+
+import (
+	"github.com/axadrn/shadcn-templ/v2/components/alert"
+	"github.com/axadrn/shadcn-templ/v2/components/badge"
+	"github.com/axadrn/shadcn-templ/v2/components/button"
+	"github.com/axadrn/shadcn-templ/v2/components/card"
+	"github.com/axadrn/shadcn-templ/v2/components/nativeselect"
+	"github.com/axadrn/shadcn-templ/v2/components/progress"
+	"github.com/axadrn/shadcn-templ/v2/components/table"
+
+	"github.com/mrdhira/camelot/services/camelot/internal/docmodel"
+	"github.com/mrdhira/camelot/services/camelot/internal/insightmodel"
+	"github.com/mrdhira/camelot/services/camelot/internal/pkg/markdown"
+	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
+)
+
+// DocNode is a document in the chain tree with the documents serving it.
+type DocNode struct {
+	Progress insightmodel.DocProgress
+	Children []DocNode
+}
+
+// DocsProps is the documents dashboard.
+type DocsProps struct {
+	Overview *insightmodel.DocOverview
+	Tree     []DocNode
+	Roots    []string
+}
+
+// Docs is the documents dashboard: counts by type and status, the chain as
+// a tree from the top (OKR → BRD → PRD → TRD) with each document's progress
+// and gaps, and every problem found in the files.
+templ Docs(p DocsProps) {
+	{{ o := p.Overview }}
+	@Layout("Documents", NavDocs, "js/shadcn/lifecycle.js", "js/shadcn/progress.js") {
+		@PageHeader("Documents", itoa(len(o.Docs))+" documents from "+joinIDs(p.Roots)+" · "+itoa(o.Gaps)+" gaps · "+itoa(len(o.Problems))+" file problems")
+		@Section("By type and status", "a document is a Markdown file under the roots whose frontmatter has a type") {
+			<div class="overflow-x-auto" tabindex="0" role="region" aria-label="Documents by type and status">
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() {
+								Type
+							}
+							for _, s := range docmodel.Statuses {
+								@table.Head(table.HeadProps{Class: "text-right"}) {
+									{ s.Label() }
+								}
+							}
+						}
+					}
+					@table.Body() {
+						for _, t := range docmodel.Types {
+							@table.Row() {
+								@table.Cell(table.CellProps{Class: "font-medium"}) {
+									{ t.Short() } <span class="font-normal text-muted-foreground">{ t.Label() }</span>
+								}
+								for _, s := range docmodel.Statuses {
+									@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+										{ itoa(o.Counts[t][s]) }
+									}
+								}
+							}
+						}
+					}
+				}
+			</div>
+		}
+		@Section("The chain", insightmodel.FormulaProgress) {
+			if len(p.Tree) == 0 {
+				<p class="text-sm text-muted-foreground">No documents yet. Add frontmatter (id, type, title, status, owner, updated, serves) to a Markdown file under a root.</p>
+			} else {
+				<ul class="grid gap-2">
+					for _, n := range p.Tree {
+						@docNode(n, 0)
+					}
+				</ul>
+			}
+		}
+		if len(o.Problems) > 0 {
+			@Section("File problems", "fix them in the files; until then the affected documents are skipped or partly read") {
+				@problemTable(o.Problems)
+			}
+		}
+	}
+}
+
+// docNode is one document row and, indented below it, what serves it.
+templ docNode(n DocNode, depth int) {
+	{{ d := n.Progress.Doc }}
+	<li class="grid gap-2">
+		<div class="grid min-w-0 gap-2 rounded-lg border p-3 sm:grid-cols-[minmax(0,1fr)_12rem] sm:items-center">
+			<div class="grid gap-1">
+				<div class="flex flex-wrap items-center gap-1.5">
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+						{ d.Type.Short() }
+					}
+					<a href={ DocHref(d.ID) } class="font-medium hover:underline">{ d.ID } · { d.Title }</a>
+					@badge.Badge(badge.Props{Variant: DocStatusVariant(d.Status)}) {
+						{ d.Status.Label() }
+					}
+				</div>
+				<p class="text-xs text-muted-foreground">
+					{ d.Owner }
+					if d.Updated != "" {
+						· updated { d.Updated }
+					}
+					· { plural(n.Progress.Direct, "card", "cards") } linked directly
+				</p>
+				if len(n.Progress.Gaps) > 0 {
+					<ul class="flex flex-wrap gap-1">
+						for _, g := range n.Progress.Gaps {
+							<li>
+								@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
+									{ g }
+								}
+							</li>
+						}
+					</ul>
+				}
+			</div>
+			@docProgress(n.Progress)
+		</div>
+		if len(n.Children) > 0 {
+			<ul class="grid gap-2 border-l pl-3 sm:pl-6" aria-label={ "Serving " + d.ID }>
+				for _, c := range n.Children {
+					@docNode(c, depth+1)
+				}
+			</ul>
+		}
+	</li>
+}
+
+// docProgress is a document's Done cards over all its cards.
+templ docProgress(p insightmodel.DocProgress) {
+	<div class="grid gap-1">
+		<p class="flex justify-between text-xs text-muted-foreground"><span>Progress</span><span class="tabular-nums">{ itoa(p.Done) }/{ itoa(p.Total) } · { Percent(p.Done, p.Total) }</span></p>
+		@progress.Progress(progress.Props{Value: p.Done, Max: max(p.Total, 1), Attributes: templ.Attributes{"aria-label": p.Doc.ID + " progress"}})
+	</div>
+}
+
+// problemTable lists document problems.
+templ problemTable(problems []docmodel.Problem) {
+	<div class="overflow-x-auto" tabindex="0" role="region" aria-label="File problems">
+		@table.Table() {
+			@table.Header() {
+				@table.Row() {
+					@table.Head() {
+						File
+					}
+					@table.Head() {
+						Problem
+					}
+				}
+			}
+			@table.Body() {
+				for _, pr := range problems {
+					@table.Row() {
+						@table.Cell(table.CellProps{Class: "font-mono text-xs"}) {
+							{ pr.Path }
+						}
+						@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+							{ pr.Message }
+						}
+					}
+				}
+			}
+		}
+	</div>
+}
+
+// DocProps is a document's page.
+type DocProps struct {
+	Chain    *docmodel.Chain
+	Progress insightmodel.DocProgress
+	Cards    []*taskmodel.Card
+	HTML     markdown.HTML
+	Error    string
+}
+
+// Doc is a document's page: its fields and status form, its chain up and
+// down, the cards that build it and its rendered text.
+templ Doc(p DocProps) {
+	{{ d := p.Chain.Doc }}
+	@Layout(d.ID+" "+d.Title, NavDocs, "js/shadcn/lifecycle.js", "js/shadcn/progress.js") {
+		<div class="grid gap-2">
+			<p class="font-mono text-sm text-muted-foreground">{ d.ID } · { d.Path }</p>
+			@PageHeader(d.Title, d.Type.Label()+" · owner "+d.Owner+" · updated "+d.Updated)
+			<div class="flex flex-wrap gap-1.5">
+				@badge.Badge(badge.Props{Variant: DocStatusVariant(d.Status)}) {
+					{ d.Status.Label() }
+				}
+				for _, g := range p.Progress.Gaps {
+					@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
+						{ g }
+					}
+				}
+			</div>
+		</div>
+		if p.Error != "" {
+			@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+				@alert.Title() {
+					Not changed
+				}
+				@alert.Description() {
+					{ p.Error }
+				}
+			}
+		}
+		<div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+			<article class="prose-camelot order-2 min-w-0 rounded-xl border p-4 lg:order-1 lg:p-6">
+				@templ.Raw(string(p.HTML))
+			</article>
+			<aside class="order-1 grid min-w-0 content-start gap-6 lg:order-2" aria-label="About this document">
+				@card.Card() {
+					@card.Header() {
+						@card.Title() {
+							Review
+						}
+						@card.Description() {
+							Sets the status in the file's frontmatter and stamps today's date.
+						}
+					}
+					@card.Content() {
+						<form method="post" action={ DocHref(d.ID) + "/status" } class="flex gap-2">
+							<label for="doc-status" class="sr-only">Status</label>
+							@nativeselect.NativeSelect(nativeselect.Props{ID: "doc-status", Name: "status", Class: "w-full"}) {
+								for _, s := range docmodel.Statuses {
+									@nativeselect.Option(nativeselect.OptionProps{Value: string(s), Selected: s == d.Status}) {
+										{ s.Label() }
+									}
+								}
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit}) {
+								Set
+							}
+						</form>
+					}
+				}
+				@docProgress(p.Progress)
+				@chainList("Serves", p.Chain.Up)
+				@chainList("Served by", p.Chain.Down)
+				@linkList("Cards building it", cardItems(p.Cards))
+			</aside>
+		</div>
+	}
+}
+
+// chainList lists documents of the chain, hidden when empty.
+templ chainList(title string, docs []*docmodel.Doc) {
+	if len(docs) > 0 {
+		<section class="grid min-w-0 gap-2" aria-label={ title }>
+			<h2 class="text-sm font-semibold">{ title }</h2>
+			<ul class="grid gap-1.5 text-sm">
+				for _, d := range docs {
+					<li class="flex items-baseline justify-between gap-2">
+						<a href={ DocHref(d.ID) } class="min-w-0 hover:underline"><span class="font-mono text-xs text-muted-foreground">{ d.ID }</span> { d.Title }</a>
+						<span class="shrink-0 text-xs text-muted-foreground">{ d.Status.Label() }</span>
+					</li>
+				}
+			</ul>
+		</section>
+	}
+}
+
+// Check is the data-quality page.
+templ Check(c *insightmodel.Check) {
+	@Layout("Data quality", "") {
+		@PageHeader("Data quality", itoa(len(c.Problems))+" problems in cards, links, folders and documents")
+		if len(c.Problems) == 0 {
+			<p class="text-sm">No problems found.</p>
+		} else {
+			<div class="overflow-x-auto" tabindex="0" role="region" aria-label="Data-quality problems">
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() {
+								Where
+							}
+							@table.Head() {
+								Problem
+							}
+						}
+					}
+					@table.Body() {
+						for _, pr := range c.Problems {
+							@table.Row() {
+								@table.Cell(table.CellProps{Class: "font-mono text-xs"}) {
+									{ pr.Subject }
+								}
+								@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+									{ pr.Message }
+								}
+							}
+						}
+					}
+				}
+			</div>
+		}
+	}
+}

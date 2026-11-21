@@ -1,0 +1,118 @@
+package app
+
+import (
+	"github.com/axadrn/shadcn-templ/v2/components/button"
+
+	"github.com/mrdhira/camelot/services/camelot/src/assets"
+)
+
+// The navigation's sections.
+const (
+	NavCockpit  = "cockpit"
+	NavBoard    = "board"
+	NavInsights = "insights"
+	NavDocs     = "docs"
+)
+
+// navItem is one link of the header.
+type navItem struct {
+	Key   string
+	Label string
+	Href  string
+}
+
+var navItems = []navItem{
+	{Key: NavCockpit, Label: "Cockpit", Href: "/"},
+	{Key: NavBoard, Label: "Board", Href: "/board"},
+	{Key: NavInsights, Label: "Insights", Href: "/insights"},
+	{Key: NavDocs, Label: "Documents", Href: "/docs"},
+}
+
+// Layout is every page's document: the header with the navigation and
+// "New card", then children in <main id="main">. Scripts load at the end.
+templ Layout(title, active string, scripts ...string) {
+	<!DOCTYPE html>
+	<html lang="en" class="style-nova">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ title } · Camelot</title>
+			<link rel="stylesheet" href={ assets.Path("css/app.css") }/>
+			<link rel="icon" href="data:,"/>
+		</head>
+		<body class="min-h-dvh">
+			<a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2">Skip to content</a>
+			<header class="sticky top-0 z-20 border-b bg-background/95 backdrop-blur">
+				<div class="mx-auto flex h-14 max-w-[1600px] items-center gap-2 px-3 sm:gap-4 sm:px-6">
+					<a href="/" class="flex shrink-0 items-center gap-2 font-semibold tracking-tight">
+						<span aria-hidden="true" class="grid size-7 place-items-center rounded-md bg-primary text-xs font-bold text-primary-foreground">C</span>
+						<span class="sr-only sm:not-sr-only">Camelot</span>
+					</a>
+					<nav aria-label="Main" class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+						for _, item := range navItems {
+							if item.Key == active {
+								@button.Button(button.Props{Href: item.Href, Variant: button.VariantSecondary, Size: button.SizeSm, Attributes: templ.Attributes{"aria-current": "page"}}) {
+									{ item.Label }
+								}
+							} else {
+								@button.Button(button.Props{Href: item.Href, Variant: button.VariantGhost, Size: button.SizeSm}) {
+									{ item.Label }
+								}
+							}
+						}
+					</nav>
+					@button.Button(button.Props{Href: "/tasks/new", Size: button.SizeSm}) {
+						<span aria-hidden="true" class="sm:hidden">+</span>
+						<span class="sr-only sm:not-sr-only">New card</span>
+					}
+				</div>
+			</header>
+			<main id="main" class="mx-auto flex max-w-[1600px] flex-col gap-6 px-3 py-6 sm:px-6">
+				{ children... }
+			</main>
+			for _, s := range scripts {
+				<script src={ assets.Path(s) } defer></script>
+			}
+		</body>
+	</html>
+}
+
+// PageHeader is a page's title, its description and optional actions on the right.
+templ PageHeader(title, description string) {
+	<div class="flex flex-wrap items-end justify-between gap-3">
+		<div class="grid gap-1">
+			<h1 class="text-2xl font-semibold tracking-tight">{ title }</h1>
+			if description != "" {
+				<p class="text-sm text-muted-foreground">{ description }</p>
+			}
+		</div>
+		<div class="flex flex-wrap items-center gap-2">
+			{ children... }
+		</div>
+	</div>
+}
+
+// Section is a titled block with a note under the title (a formula or a source).
+templ Section(title, note string) {
+	<section class="grid min-w-0 grid-cols-1 content-start gap-3" aria-label={ title }>
+		<div class="grid gap-0.5">
+			<h2 class="text-base font-semibold">{ title }</h2>
+			if note != "" {
+				<p class="text-xs text-muted-foreground">{ note }</p>
+			}
+		</div>
+		{ children... }
+	</section>
+}
+
+// ErrorPage is a full page for an error: the status and what to do.
+templ ErrorPage(status int, message string) {
+	@Layout(statusTitle(status), "") {
+		@PageHeader(statusTitle(status), message)
+		<p>
+			@button.Button(button.Props{Href: "/", Variant: button.VariantOutline}) {
+				Back to the cockpit
+			}
+		</p>
+	}
+}

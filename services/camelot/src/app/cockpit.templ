@@ -1,0 +1,263 @@
+package app
+
+import (
+	"github.com/axadrn/shadcn-templ/v2/components/alert"
+	"github.com/axadrn/shadcn-templ/v2/components/badge"
+	"github.com/axadrn/shadcn-templ/v2/components/button"
+	"github.com/axadrn/shadcn-templ/v2/components/card"
+	"github.com/axadrn/shadcn-templ/v2/components/empty"
+	"github.com/axadrn/shadcn-templ/v2/components/table"
+
+	"github.com/mrdhira/camelot/services/camelot/internal/insightmodel"
+	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
+)
+
+// Cockpit is the home page: the headline numbers, what waits for Dhira,
+// what is in flight, what is blocked or stale, and who did what.
+templ Cockpit(o *insightmodel.Overview) {
+	@Layout("Cockpit", NavCockpit) {
+		@PageHeader("Cockpit", "As of "+When(o.Now)+". Facts from the board; the decisions are yours.")
+		if o.Problems > 0 {
+			@alert.Alert() {
+				@alert.Title() {
+					{ itoa(o.Problems) } data-quality problems in the documents
+				}
+				@alert.Description() {
+					Numbers that depend on them may be off. <a href="/check" class="underline underline-offset-4">See the check</a>.
+				}
+			}
+		}
+		<div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+			@StatTile("Waiting on you", itoa(len(o.Waiting)+len(o.DocsInReview)), "cards with a question + documents in review", len(o.Waiting)+len(o.DocsInReview) > 0)
+			@StatTile("In review", itoa(len(o.InReview)), "cards in Review in Progress", false)
+			@StatTile("Work in progress", itoa(o.WIP), insightmodel.FormulaWIP, false)
+			@StatTile("Blocked", itoa(len(o.Blocked)), "unfinished cards with a dependency not Done", len(o.Blocked) > 0)
+			@StatTile("Stale", itoa(len(o.Stale)), "started cards with no event for over 7 days", len(o.Stale) > 0)
+			@StatTile("Done this week", itoa(thisWeek(o)), "cards finished since Monday 00:00 UTC; "+itoa(o.Finished)+" in 12 weeks", false)
+		</div>
+		@Section("Waiting for your decision", "a card's waiting question, cards in Review, documents in review") {
+			if len(o.Waiting) == 0 && len(o.InReview) == 0 && len(o.DocsInReview) == 0 {
+				@empty.Empty(empty.Props{Class: "border"}) {
+					@empty.Header() {
+						@empty.Title() {
+							Nothing waits for you
+						}
+						@empty.Description() {
+							No card has a question and nothing is in review.
+						}
+					}
+				}
+			} else {
+				<div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+					for _, c := range o.Waiting {
+						@decisionCard(c, c.Waiting)
+					}
+					for _, c := range o.InReview {
+						if c.Waiting == "" {
+							@decisionCard(c, "Review the report and the diff, then approve the commit or send it back.")
+						}
+					}
+					for _, d := range o.DocsInReview {
+						@card.Card() {
+							@card.Header() {
+								@card.Title() {
+									<a href={ DocHref(d.ID) } class="hover:underline">{ d.ID } · { d.Title }</a>
+								}
+								@card.Description() {
+									{ d.Type.Label() } in review since { d.Updated }
+								}
+							}
+						}
+					}
+				</div>
+			}
+		}
+		<div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+			@Section("In flight", insightmodel.FormulaAge+". Flagged: older than the cycle time p85 ("+ageThreshold(o)+").") {
+				@inFlightTable(o)
+			}
+			@Section("Agents, last 7 days", "who recorded changes, from the card history; an agent that records nothing is invisible here") {
+				if len(o.Agents) == 0 {
+					<p class="text-sm text-muted-foreground">No changes recorded in the last 7 days.</p>
+				} else {
+					<div class="overflow-x-auto" tabindex="0" role="region" aria-label="Agents">
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() {
+										Actor
+									}
+									@table.Head(table.HeadProps{Class: "text-right"}) {
+										Changes
+									}
+									@table.Head() {
+										Last
+									}
+								}
+							}
+							@table.Body() {
+								for _, a := range o.Agents {
+									@table.Row() {
+										@table.Cell(table.CellProps{Class: "font-medium"}) {
+											{ a.Actor }
+										}
+										@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+											{ itoa(a.Events) }
+										}
+										@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+											<a href={ TaskHref(a.LastCard) } class="font-mono text-xs hover:underline">{ a.LastCard }</a>
+											<span class="text-muted-foreground">· { Ago(a.LastAt, o.Now) }</span>
+										}
+									}
+								}
+							}
+						}
+					</div>
+				}
+			}
+		</div>
+		<div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+			@Section("Blocked", "unfinished cards waiting for a dependency that is not Done") {
+				if len(o.Blocked) == 0 {
+					<p class="text-sm text-muted-foreground">Nothing is blocked.</p>
+				} else {
+					<ul class="grid gap-2 text-sm">
+						for _, b := range o.Blocked {
+							<li>
+								<a href={ TaskHref(b.Card.ID) } class="hover:underline"><span class="font-mono text-xs text-muted-foreground">{ b.Card.ID }</span> { b.Card.Title }</a>
+								<span class="text-muted-foreground">waits for</span>
+								for i, id := range b.By {
+									if i > 0 {
+										,
+									}
+									<a href={ TaskHref(id) } class="font-mono text-xs underline underline-offset-4">{ id }</a>
+								}
+							</li>
+						}
+					</ul>
+				}
+			}
+			@Section("Recent changes", "the last 15 events") {
+				<ul class="grid gap-1.5 text-sm">
+					for _, e := range o.Recent {
+						<li class="flex flex-wrap items-baseline gap-x-2">
+							<a href={ TaskHref(e.CardID) } class="font-mono text-xs hover:underline">{ e.CardID }</a>
+							<span>{ eventText(e) }</span>
+							<span class="text-xs text-muted-foreground">{ e.Actor } · { Ago(e.CreatedAt, o.Now) }</span>
+						</li>
+					}
+				</ul>
+			}
+		</div>
+	}
+}
+
+// decisionCard is a card that waits for Dhira, with its question.
+templ decisionCard(c *taskmodel.Card, question string) {
+	@card.Card(card.Props{Class: "border-status-critical/40"}) {
+		@card.Header() {
+			@card.Title() {
+				<a href={ TaskHref(c.ID) } class="hover:underline"><span class="font-mono text-xs text-muted-foreground">{ c.ID }</span> { c.Title }</a>
+			}
+			@card.Description() {
+				{ question }
+			}
+			@card.Action() {
+				@badge.Badge(badge.Props{Variant: StatusVariant(c.Status)}) {
+					{ c.Status.Label() }
+				}
+			}
+		}
+		@card.Footer() {
+			@button.Button(button.Props{Href: TaskHref(c.ID), Size: button.SizeSm, Variant: button.VariantOutline}) {
+				Open
+			}
+		}
+	}
+}
+
+// inFlightTable lists the started cards, oldest first.
+templ inFlightTable(o *insightmodel.Overview) {
+	if len(o.InFlight) == 0 {
+		<p class="text-sm text-muted-foreground">Nothing is in flight.</p>
+	} else {
+		<div class="overflow-x-auto" tabindex="0" role="region" aria-label="In-flight cards">
+			@table.Table() {
+				@table.Header() {
+					@table.Row() {
+						@table.Head() {
+							Card
+						}
+						@table.Head() {
+							Status
+						}
+						@table.Head() {
+							Assignee
+						}
+						@table.Head(table.HeadProps{Class: "text-right"}) {
+							Age
+						}
+						@table.Head() {
+							Last change
+						}
+					}
+				}
+				@table.Body() {
+					for _, a := range o.InFlight {
+						@table.Row() {
+							@table.Cell(table.CellProps{Class: "max-w-80 whitespace-normal"}) {
+								<a href={ TaskHref(a.Card.ID) } class="hover:underline"><span class="font-mono text-xs text-muted-foreground">{ a.Card.ID }</span> { a.Card.Title }</a>
+							}
+							@table.Cell() {
+								{ a.Card.Status.Label() }
+							}
+							@table.Cell() {
+								{ a.Card.Assignee }
+							}
+							@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+								if !a.Known {
+									<span class="text-muted-foreground" title="imported already started: no start recorded">unknown</span>
+								} else if a.Flagged {
+									<span class="font-semibold text-status-critical">{ Duration(a.Age) } ▲</span>
+									<span class="sr-only">older than the threshold</span>
+								} else {
+									{ Duration(a.Age) }
+								}
+							}
+							@table.Cell(table.CellProps{Class: "whitespace-normal text-muted-foreground"}) {
+								if a.LastEvent != nil {
+									{ a.LastEvent.Actor } · { Ago(a.LastEvent.CreatedAt, o.Now) }
+								}
+							}
+						}
+					}
+				}
+			}
+		</div>
+	}
+}
+
+// StatTile is one headline number with how it is computed.
+templ StatTile(label, value, formula string, attention bool) {
+	<div class={ "grid gap-1 rounded-xl border p-3", templ.KV("border-2 border-status-critical", attention) } title={ formula }>
+		<p class="text-xs font-medium text-muted-foreground">{ label }</p>
+		<p class="text-3xl font-semibold tabular-nums tracking-tight">{ value }</p>
+		<p class="line-clamp-2 text-[11px] leading-4 text-muted-foreground">{ formula }</p>
+	</div>
+}
+
+// thisWeek is the count of the current throughput week.
+func thisWeek(o *insightmodel.Overview) int {
+	if len(o.Throughput) == 0 {
+		return 0
+	}
+	return o.Throughput[len(o.Throughput)-1].Count
+}
+
+// ageThreshold says what an in-flight age is flagged against.
+func ageThreshold(o *insightmodel.Overview) string {
+	if o.Cycle.Shown() {
+		return Duration(o.Cycle.P85)
+	}
+	return "7 d until " + itoa(insightmodel.MinSample) + " cards have a cycle time; " + itoa(o.Cycle.N) + " so far"
+}

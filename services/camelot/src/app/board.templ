@@ -1,0 +1,158 @@
+package app
+
+import (
+	"github.com/axadrn/shadcn-templ/v2/components/badge"
+	"github.com/axadrn/shadcn-templ/v2/components/button"
+	"github.com/axadrn/shadcn-templ/v2/components/field"
+	"github.com/axadrn/shadcn-templ/v2/components/input"
+	"github.com/axadrn/shadcn-templ/v2/components/nativeselect"
+
+	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
+)
+
+// BoardCard is a card on the board with what its tile flags.
+type BoardCard struct {
+	Card    *taskmodel.Card
+	Blocked bool
+}
+
+// BoardColumn is one status column; Hidden counts Done cards left out.
+type BoardColumn struct {
+	Status taskmodel.Status
+	Cards  []BoardCard
+	Hidden int
+}
+
+// BoardFilter is the board's GET filter.
+type BoardFilter struct {
+	Type      string
+	Milestone string
+	Query     string
+	Waiting   bool
+	AllDone   bool
+}
+
+// BoardProps is the board page.
+type BoardProps struct {
+	Columns    []BoardColumn
+	Filter     BoardFilter
+	Milestones []*taskmodel.Card
+	Total      int
+	DoneLimit  int
+}
+
+// Board is the Kanban board: a GET filter, then one column per status.
+// Dragging a tile onto a column moves it (js/board.js posts the hidden
+// move form); without script, a card's page moves it.
+templ Board(p BoardProps) {
+	@Layout("Board", NavBoard, "js/board.js") {
+		@PageHeader("Board", itoa(p.Total)+" cards shown · drag a card to another column to move it, or open it to move it with the keyboard") {
+		}
+		<form method="get" action="/board" class="grid gap-3 rounded-xl border p-3 sm:grid-cols-[2fr_1fr_1fr_auto_auto] sm:items-end" aria-label="Filter the board">
+			@field.Field() {
+				@field.Label(field.LabelProps{For: "q"}) {
+					Search
+				}
+				@input.Input(input.Props{ID: "q", Name: "q", Type: "search", Value: p.Filter.Query, Placeholder: "ID or title"})
+			}
+			@field.Field() {
+				@field.Label(field.LabelProps{For: "type"}) {
+					Type
+				}
+				@nativeselect.NativeSelect(nativeselect.Props{ID: "type", Name: "type", Class: "w-full"}) {
+					@nativeselect.Option(nativeselect.OptionProps{Value: "", Selected: p.Filter.Type == ""}) {
+						All but milestones
+					}
+					for _, t := range taskmodel.Types {
+						@nativeselect.Option(nativeselect.OptionProps{Value: string(t), Selected: p.Filter.Type == string(t)}) {
+							{ string(t) }
+						}
+					}
+				}
+			}
+			@field.Field() {
+				@field.Label(field.LabelProps{For: "milestone"}) {
+					Milestone
+				}
+				@nativeselect.NativeSelect(nativeselect.Props{ID: "milestone", Name: "milestone", Class: "w-full"}) {
+					@nativeselect.Option(nativeselect.OptionProps{Value: "", Selected: p.Filter.Milestone == ""}) {
+						All
+					}
+					for _, m := range p.Milestones {
+						@nativeselect.Option(nativeselect.OptionProps{Value: m.ID, Selected: p.Filter.Milestone == m.ID}) {
+							{ m.ID } · { m.Title }
+						}
+					}
+				}
+			}
+			<label class="flex h-9 items-center gap-2 text-sm">
+				<input type="checkbox" name="waiting" value="1" checked?={ p.Filter.Waiting } class="size-4 accent-primary"/>
+				Waiting on me
+			</label>
+			@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline}) {
+				Filter
+			}
+		</form>
+		<form id="board-move" method="post" action="/board" class="hidden">
+			<input type="hidden" name="status" value=""/>
+			<input type="hidden" name="updated_at" value=""/>
+			<input type="hidden" name="return" value="board"/>
+		</form>
+		<div class="-mx-3 overflow-x-auto px-3 pb-2 sm:-mx-6 sm:px-6" tabindex="0" role="region" aria-label="Board columns">
+			<div class="grid min-w-[1200px] grid-cols-7 gap-3">
+				for _, col := range p.Columns {
+					<section data-column={ string(col.Status) } class="flex min-h-40 flex-col gap-2 rounded-xl bg-muted/50 p-2 ring-series-1 transition" aria-labelledby={ "col-" + string(col.Status) }>
+						<header class="flex items-center justify-between px-1 pt-1">
+							<h2 id={ "col-" + string(col.Status) } class="text-sm font-semibold">{ col.Status.Label() }</h2>
+							<span class="text-xs tabular-nums text-muted-foreground" title={ col.Status.Stage() }>{ itoa(len(col.Cards) + col.Hidden) }</span>
+						</header>
+						for _, bc := range col.Cards {
+							@cardTile(bc)
+						}
+						if col.Hidden > 0 {
+							<a href="/board?all_done=1" class="px-1 text-xs text-muted-foreground underline underline-offset-4">{ itoa(col.Hidden) } older Done cards hidden · show all</a>
+						}
+					</section>
+				}
+			</div>
+		</div>
+	}
+}
+
+// cardTile is one card on the board.
+templ cardTile(bc BoardCard) {
+	{{ c := bc.Card }}
+	<article data-card={ c.ID } data-status={ string(c.Status) } data-updated={ ISO(c.UpdatedAt) } class="grid cursor-grab gap-2 rounded-lg border bg-card p-2.5 text-sm shadow-xs active:cursor-grabbing">
+		<div class="flex items-center justify-between gap-2">
+			<span class="font-mono text-xs text-muted-foreground">{ c.ID }</span>
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+				{ string(c.Type) }
+			}
+		</div>
+		<a href={ TaskHref(c.ID) } class="font-medium leading-snug hover:underline">{ c.Title }</a>
+		if c.Waiting != "" || bc.Blocked || c.MilestoneID != "" || c.Assignee != "" {
+			<div class="flex flex-wrap gap-1">
+				if c.Waiting != "" {
+					@badge.Badge(badge.Props{Variant: badge.VariantDestructive, Attributes: templ.Attributes{"title": c.Waiting}}) {
+						Waiting on you
+					}
+				}
+				if bc.Blocked {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						Blocked
+					}
+				}
+				if c.MilestoneID != "" {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						{ c.MilestoneID }
+					}
+				}
+				if c.Assignee != "" {
+					@badge.Badge(badge.Props{Variant: badge.VariantGhost}) {
+						{ "@" + c.Assignee }
+					}
+				}
+			</div>
+		}
+	</article>
+}

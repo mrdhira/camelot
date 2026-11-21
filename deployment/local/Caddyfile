@@ -1,0 +1,20 @@
+# Camelot's reverse proxy (deployment/local/docker-compose.yaml): HTTP only
+# on 127.0.0.1:80 (*.localhost is a secure context), one site; any other
+# Host is refused, and the app checks Host again (421).
+{
+	auto_https off
+	admin 127.0.0.1:2019
+}
+
+http://camelot.localhost {
+	encode zstd gzip
+	reverse_proxy camelot:7700
+	log {
+		output stdout
+		format json
+	}
+}
+
+:80 {
+	respond "unknown host" 421
+}

@@ -1,0 +1,13 @@
+# Context allow-list for services/camelot/Dockerfile (build context = repo root).
+*
+!go.mod
+!go.sum
+!services/
+services/camelot/Dockerfile
+**/*_test.go
+**/*taskservicetest/
+**/.DS_Store
+**/src/.shadcn-templ
+**/*.db
+**/*.db-wal
+**/*.db-shm

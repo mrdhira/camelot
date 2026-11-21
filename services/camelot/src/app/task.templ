@@ -1,0 +1,468 @@
+package app
+
+import (
+	"time"
+
+	"github.com/axadrn/shadcn-templ/v2/components/alert"
+	"github.com/axadrn/shadcn-templ/v2/components/badge"
+	"github.com/axadrn/shadcn-templ/v2/components/button"
+	"github.com/axadrn/shadcn-templ/v2/components/card"
+	"github.com/axadrn/shadcn-templ/v2/components/field"
+	"github.com/axadrn/shadcn-templ/v2/components/input"
+	"github.com/axadrn/shadcn-templ/v2/components/nativeselect"
+	"github.com/axadrn/shadcn-templ/v2/components/table"
+	"github.com/axadrn/shadcn-templ/v2/components/textarea"
+
+	"github.com/mrdhira/camelot/services/camelot/internal/pkg/markdown"
+	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
+)
+
+// TaskProps is a card's page.
+type TaskProps struct {
+	Detail      *taskmodel.GetResponse
+	Description markdown.HTML
+	Files       []string
+	Error       string
+	Now         time.Time
+}
+
+// Task is a card's page: its fields, the move form, what waits, its links,
+// its folder's Markdown files and its history.
+templ Task(p TaskProps) {
+	{{ c := p.Detail.Card }}
+	@Layout(c.ID+" "+c.Title, NavBoard) {
+		<div class="grid gap-2">
+			<p class="font-mono text-sm text-muted-foreground">{ c.ID }</p>
+			@PageHeader(c.Title, "") {
+				@button.Button(button.Props{Href: TaskHref(c.ID) + "/edit", Variant: button.VariantOutline, Size: button.SizeSm}) {
+					Edit
+				}
+				@button.Button(button.Props{Href: TaskHref(c.ID) + "/delete", Variant: button.VariantGhost, Size: button.SizeSm}) {
+					Delete
+				}
+			}
+			<div class="flex flex-wrap gap-1.5">
+				@badge.Badge(badge.Props{Variant: StatusVariant(c.Status)}) {
+					{ c.Status.Label() }
+				}
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline, Attributes: templ.Attributes{"title": c.Type.Meaning()}}) {
+					{ string(c.Type) }
+				}
+				if c.MilestoneID != "" {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Href: TaskHref(c.MilestoneID)}) {
+						{ c.MilestoneID }
+					}
+				}
+				if c.Assignee != "" {
+					@badge.Badge(badge.Props{Variant: badge.VariantGhost}) {
+						{ "@" + c.Assignee }
+					}
+				}
+				if p.Detail.Blocked() {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						Blocked
+					}
+				}
+			</div>
+		</div>
+		if p.Error != "" {
+			@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+				@alert.Title() {
+					Not changed
+				}
+				@alert.Description() {
+					{ p.Error }
+				}
+			}
+		}
+		if c.Waiting != "" {
+			@alert.Alert() {
+				@alert.Title() {
+					Waiting for your decision
+				}
+				@alert.Description() {
+					<p>{ c.Waiting }</p>
+					<form method="post" action={ TaskHref(c.ID) + "/resolve" } class="mt-2">
+						<input type="hidden" name="updated_at" value={ ISO(c.UpdatedAt) }/>
+						@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Variant: button.VariantOutline}) {
+							Mark as decided
+						}
+					</form>
+				}
+			}
+		}
+		<div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+			<div class="grid min-w-0 content-start gap-6">
+				@Section("Description", "") {
+					if p.Description != "" {
+						<div class="prose-camelot rounded-xl border p-4">
+							@templ.Raw(string(p.Description))
+						</div>
+					} else {
+						<p class="text-sm text-muted-foreground">No description.</p>
+					}
+				}
+				if len(p.Files) > 0 {
+					@Section("Files", c.Folder) {
+						<ul class="flex flex-wrap gap-2">
+							for _, f := range p.Files {
+								<li>
+									@button.Button(button.Props{Href: TaskHref(c.ID) + "/files/" + f, Variant: button.VariantOutline, Size: button.SizeSm}) {
+										{ f }
+									}
+								</li>
+							}
+						</ul>
+					}
+				}
+				@Section("History", "every change, newest first; who made it and why") {
+					<div class="overflow-x-auto" tabindex="0" role="region" aria-label="History">
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() {
+										When
+									}
+									@table.Head() {
+										Who
+									}
+									@table.Head() {
+										Change
+									}
+									@table.Head() {
+										Note
+									}
+								}
+							}
+							@table.Body() {
+								for _, e := range p.Detail.Events {
+									@table.Row() {
+										@table.Cell(table.CellProps{Class: "whitespace-nowrap"}) {
+											<time datetime={ ISO(e.CreatedAt) }>{ When(e.CreatedAt) }</time>
+										}
+										@table.Cell() {
+											{ e.Actor }
+										}
+										@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+											{ eventText(e) }
+										}
+										@table.Cell(table.CellProps{Class: "whitespace-normal text-muted-foreground"}) {
+											{ e.Note }
+										}
+									}
+								}
+							}
+						}
+					</div>
+				}
+			</div>
+			<div class="grid min-w-0 content-start gap-6">
+				@card.Card() {
+					@card.Header() {
+						@card.Title() {
+							Move
+						}
+						@card.Description() {
+							{ c.Status.Label() }: { c.Status.Stage() }
+						}
+					}
+					@card.Content() {
+						<form method="post" action={ TaskHref(c.ID) + "/move" } class="flex gap-2">
+							<input type="hidden" name="updated_at" value={ ISO(c.UpdatedAt) }/>
+							<label for="move-status" class="sr-only">New status</label>
+							@nativeselect.NativeSelect(nativeselect.Props{ID: "move-status", Name: "status", Class: "w-full"}) {
+								for _, s := range taskmodel.Statuses {
+									@nativeselect.Option(nativeselect.OptionProps{Value: string(s), Selected: s == c.Status}) {
+										{ s.Label() }
+									}
+								}
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit}) {
+								Move
+							}
+						</form>
+					}
+				}
+				@linkList("Depends on", depItems(p.Detail.Deps))
+				@linkList("Needed by", cardItems(p.Detail.Dependents))
+				if c.Type == taskmodel.TypeMilestone {
+					@linkList("Cards in this milestone", cardItems(p.Detail.Children))
+				}
+				@docList(c.Docs)
+				<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+					<dt class="text-muted-foreground">Created</dt>
+					<dd>{ When(c.CreatedAt) }</dd>
+					<dt class="text-muted-foreground">Updated</dt>
+					<dd>{ When(c.UpdatedAt) } ({ Ago(c.UpdatedAt, p.Now) })</dd>
+					if c.Folder != "" {
+						<dt class="text-muted-foreground">Folder</dt>
+						<dd class="break-all font-mono text-xs">{ c.Folder }</dd>
+					}
+				</dl>
+			</div>
+		</div>
+	}
+}
+
+// linkItem is a card in a side list.
+type linkItem struct {
+	ID     string
+	Title  string
+	Status string
+	Done   bool
+}
+
+func depItems(deps []taskmodel.DepState) []linkItem {
+	var out []linkItem
+	for _, d := range deps {
+		status := "missing"
+		if d.Found {
+			status = d.Status.Label()
+		}
+		out = append(out, linkItem{ID: d.ID, Title: d.Title, Status: status, Done: d.Status == taskmodel.StatusDone})
+	}
+	return out
+}
+
+func cardItems(cards []*taskmodel.Card) []linkItem {
+	var out []linkItem
+	for _, c := range cards {
+		out = append(out, linkItem{ID: c.ID, Title: c.Title, Status: c.Status.Label(), Done: c.Status == taskmodel.StatusDone})
+	}
+	return out
+}
+
+// linkList is a titled list of cards with their status, hidden when empty.
+templ linkList(title string, items []linkItem) {
+	if len(items) > 0 {
+		<section class="grid min-w-0 gap-2" aria-label={ title }>
+			<h2 class="text-sm font-semibold">{ title }</h2>
+			<ul class="grid gap-1.5 text-sm">
+				for _, it := range items {
+					<li class="flex items-baseline justify-between gap-2">
+						<a href={ TaskHref(it.ID) } class="min-w-0 hover:underline"><span class="font-mono text-xs text-muted-foreground">{ it.ID }</span> { it.Title }</a>
+						<span class={ "shrink-0 text-xs", templ.KV("text-muted-foreground", it.Done) }>{ it.Status }</span>
+					</li>
+				}
+			</ul>
+		</section>
+	}
+}
+
+// docList links a card's documents.
+templ docList(ids []string) {
+	if len(ids) > 0 {
+		<section class="grid min-w-0 gap-2" aria-label="Documents">
+			<h2 class="text-sm font-semibold">Documents</h2>
+			<div class="flex flex-wrap gap-1.5">
+				for _, id := range ids {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Href: DocHref(id)}) {
+						{ id }
+					}
+				}
+			</div>
+		</section>
+	}
+}
+
+// eventText says what an event changed.
+func eventText(e *taskmodel.Event) string {
+	switch e.Field {
+	case taskmodel.FieldCreated:
+		return "created in " + taskmodel.Status(e.ToValue).Label()
+	case taskmodel.FieldImported:
+		return "imported in " + taskmodel.Status(e.ToValue).Label()
+	case taskmodel.FieldDeleted:
+		return "deleted"
+	case taskmodel.FieldStatus:
+		return "moved " + taskmodel.Status(e.FromValue).Label() + " → " + taskmodel.Status(e.ToValue).Label()
+	case taskmodel.FieldDescription:
+		return "description edited"
+	}
+	from, to := e.FromValue, e.ToValue
+	if from == "" {
+		from = "—"
+	}
+	if to == "" {
+		to = "—"
+	}
+	return e.Field + ": " + from + " → " + to
+}
+
+// TaskFormProps is the create and edit form.
+type TaskFormProps struct {
+	New        bool
+	ID         string
+	Prefix     string
+	Title      string
+	Type       string
+	Status     string
+	Milestone  string
+	Assignee   string
+	Waiting    string
+	Folder     string
+	Deps       string
+	Docs       string
+	Desc       string
+	Note       string
+	UpdatedAt  string
+	Error      string
+	Milestones []*taskmodel.Card
+}
+
+// TaskForm creates or edits a card.
+templ TaskForm(p TaskFormProps) {
+	{{ title := "New card" }}
+	{{ action := "/tasks" }}
+	if !p.New {
+		{{ title = "Edit " + p.ID }}
+		{{ action = TaskHref(p.ID) }}
+	}
+	@Layout(title, NavBoard) {
+		@PageHeader(title, "Every change is recorded with you as its author.")
+		if p.Error != "" {
+			@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+				@alert.Title() {
+					Not saved
+				}
+				@alert.Description() {
+					{ p.Error }
+				}
+			}
+		}
+		<form method="post" action={ action } class="grid max-w-3xl gap-4">
+			<input type="hidden" name="updated_at" value={ p.UpdatedAt }/>
+			if p.New {
+				<div class="grid gap-4 sm:grid-cols-2">
+					@textField("id", "ID", p.ID, "WIG-082; or leave empty and give a prefix")
+					@textField("prefix", "Prefix for the next number", p.Prefix, "DITA → the next DITA-NNN")
+				</div>
+			}
+			@textField("title", "Title", p.Title, "")
+			<div class="grid gap-4 sm:grid-cols-3">
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "type"}) {
+						Type
+					}
+					@nativeselect.NativeSelect(nativeselect.Props{ID: "type", Name: "type", Class: "w-full"}) {
+						for _, t := range taskmodel.Types {
+							@nativeselect.Option(nativeselect.OptionProps{Value: string(t), Selected: p.Type == string(t)}) {
+								{ string(t) }
+							}
+						}
+					}
+				}
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "status"}) {
+						Status
+					}
+					@nativeselect.NativeSelect(nativeselect.Props{ID: "status", Name: "status", Class: "w-full"}) {
+						for _, s := range taskmodel.Statuses {
+							@nativeselect.Option(nativeselect.OptionProps{Value: string(s), Selected: p.Status == string(s)}) {
+								{ s.Label() }
+							}
+						}
+					}
+				}
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "milestone"}) {
+						Milestone
+					}
+					@nativeselect.NativeSelect(nativeselect.Props{ID: "milestone", Name: "milestone", Class: "w-full"}) {
+						@nativeselect.Option(nativeselect.OptionProps{Value: "", Selected: p.Milestone == ""}) {
+							None
+						}
+						for _, m := range p.Milestones {
+							@nativeselect.Option(nativeselect.OptionProps{Value: m.ID, Selected: p.Milestone == m.ID}) {
+								{ m.ID } · { m.Title }
+							}
+						}
+					}
+				}
+			</div>
+			<div class="grid gap-4 sm:grid-cols-2">
+				@textField("assignee", "Assignee", p.Assignee, "agent name or dhira")
+				@textField("folder", "Folder", p.Folder, "tasks/DITA-004-camelot-cockpit")
+			</div>
+			@textField("waiting", "Waiting on Dhira", p.Waiting, "the one-line question; empty when nothing waits")
+			<div class="grid gap-4 sm:grid-cols-2">
+				@textField("deps", "Depends on", p.Deps, "card IDs, comma separated")
+				@textField("docs", "Documents", p.Docs, "document IDs, comma separated")
+			</div>
+			@field.Field() {
+				@field.Label(field.LabelProps{For: "description"}) {
+					Description (Markdown)
+				}
+				@textarea.Textarea(textarea.Props{ID: "description", Name: "description", Value: p.Desc, Rows: 10})
+			}
+			@textField("note", "Note for the history", p.Note, "why this change")
+			<div class="flex gap-2">
+				@button.Button(button.Props{Type: button.TypeSubmit}) {
+					Save
+				}
+				if p.New {
+					@button.Button(button.Props{Href: "/board", Variant: button.VariantGhost}) {
+						Cancel
+					}
+				} else {
+					@button.Button(button.Props{Href: TaskHref(p.ID), Variant: button.VariantGhost}) {
+						Cancel
+					}
+				}
+			</div>
+		</form>
+	}
+}
+
+// textField is a labelled text input with an optional hint.
+templ textField(name, label, value, hint string) {
+	@field.Field() {
+		@field.Label(field.LabelProps{For: name}) {
+			{ label }
+		}
+		@input.Input(input.Props{ID: name, Name: name, Value: value, Placeholder: hint})
+	}
+}
+
+// TaskDelete asks before deleting a card.
+templ TaskDelete(c *taskmodel.Card, errMsg string) {
+	@Layout("Delete "+c.ID, NavBoard) {
+		@PageHeader("Delete "+c.ID+"?", c.Title)
+		<p class="text-sm">The card leaves the board; its history stays and its ID cannot be reused. Moving it to Done is usually what you want.</p>
+		if errMsg != "" {
+			@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+				@alert.Title() {
+					Not deleted
+				}
+				@alert.Description() {
+					{ errMsg }
+				}
+			}
+		}
+		<form method="post" action={ TaskHref(c.ID) + "/delete" } class="flex max-w-xl flex-col gap-3">
+			@textField("note", "Why", "", "recorded in the history")
+			<div class="flex gap-2">
+				@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+					Delete card
+				}
+				@button.Button(button.Props{Href: TaskHref(c.ID), Variant: button.VariantGhost}) {
+					Keep it
+				}
+			</div>
+		</form>
+	}
+}
+
+// TaskFile shows one Markdown file of a card's folder.
+templ TaskFile(c *taskmodel.Card, name string, html markdown.HTML) {
+	@Layout(c.ID+" "+name, NavBoard) {
+		@PageHeader(name, c.ID+" · "+c.Folder) {
+			@button.Button(button.Props{Href: TaskHref(c.ID), Variant: button.VariantOutline, Size: button.SizeSm}) {
+				Back to { c.ID }
+			}
+		}
+		<article class="prose-camelot max-w-4xl">
+			@templ.Raw(string(html))
+		</article>
+	}
+}

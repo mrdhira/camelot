@@ -1,0 +1,90 @@
+# Camelot on http://camelot.localhost: the app behind its own Caddy, in its
+# own compose project and network, so it never touches wigataintech-local
+# (whose Caddy holds 127.0.0.1:443 with a CA name-constrained to
+# wigataintech.localhost). The only published port is 127.0.0.1:80.
+# *.localhost resolves to loopback and is a secure context in browsers, so
+# plain HTTP needs no certificate.
+#
+# Only what the app needs of the vault is mounted, read-write at the same
+# paths under /vault: card folders (tasks/), the database (.camelot/) and the
+# two document roots; the rest of the vault (personal files, other repos)
+# is not in the container. While the app serves, it records itself in
+# .camelot/server.lock and every process on another host (the Mac's camelot
+# CLI or MCP, which re-checks before each tool call) refuses the database:
+# SQLite's locks do not cross the VM boundary. Agents go through
+# scripts/camelot. No restart policy: only make up starts the stack, after
+# checking that no native camelot serve holds the database.
+name: camelot-local
+
+x-base: &base
+  restart: "no"
+  networks: [camelot]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  read_only: true
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-health: &health
+  interval: 10s
+  timeout: 3s
+  retries: 3
+  start_period: 20s
+  start_interval: 1s
+
+networks:
+  camelot:
+    name: camelot-local
+
+services:
+  camelot:
+    <<: *base
+    image: ${CAMELOT_IMAGE:-camelot:local}
+    build:
+      context: ../..
+      dockerfile: services/camelot/Dockerfile
+    container_name: camelot
+    hostname: camelot
+    environment:
+      CAMELOT_VAULT: /vault
+      CAMELOT_LISTEN: 0.0.0.0:7700
+      CAMELOT_BEHIND_PROXY: "true"
+      CAMELOT_HOSTS: camelot.localhost
+      CAMELOT_DOC_ROOTS: wiki/wigata-intech,workspaces/wigata-monolithic/docs/trd
+      CAMELOT_TIME_ZONE: ${CAMELOT_TIME_ZONE:-Asia/Tokyo}
+      GOMEMLIMIT: 115MiB
+    volumes:
+      - ${CAMELOT_VAULT_DIR:?set by make up}/tasks:/vault/tasks
+      - ${CAMELOT_VAULT_DIR:?set by make up}/.camelot:/vault/.camelot
+      - ${CAMELOT_VAULT_DIR:?set by make up}/wiki/wigata-intech:/vault/wiki/wigata-intech
+      - ${CAMELOT_VAULT_DIR:?set by make up}/workspaces/wigata-monolithic/docs/trd:/vault/workspaces/wigata-monolithic/docs/trd
+    tmpfs: ["/tmp:size=16m"]
+    healthcheck:
+      <<: *health
+      test: ["CMD", "/app/camelot", "probe"]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
+
+  caddy:
+    <<: *base
+    image: caddy:2.11.7
+    depends_on:
+      camelot: {condition: service_healthy}
+    ports: ["127.0.0.1:80:80"]
+    # /usr/bin/caddy carries this file capability; exec fails without it.
+    cap_add: [NET_BIND_SERVICE]
+    tmpfs: ["/data:size=4m", "/config:size=4m", "/tmp:size=4m"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      GOMEMLIMIT: 50MiB
+    healthcheck:
+      <<: *health
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 64

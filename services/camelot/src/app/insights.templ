@@ -1,0 +1,240 @@
+package app
+
+import (
+	"fmt"
+
+	"github.com/axadrn/shadcn-templ/v2/components/progress"
+	"github.com/axadrn/shadcn-templ/v2/components/table"
+
+	"github.com/mrdhira/camelot/services/camelot/internal/insightmodel"
+)
+
+// Insights is the task flow page: WIP, throughput, cycle time, open work
+// by type and milestone progress, each with its formula and sample.
+templ Insights(o *insightmodel.Overview) {
+	@Layout("Insights", NavInsights, "js/shadcn/lifecycle.js", "js/shadcn/progress.js") {
+		@PageHeader("Insights", "Kanban flow measures (Kanban Guide: WIP, throughput, work item age, cycle time) as of "+When(o.Now)+".")
+		<div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+			@StatTile("Work in progress", itoa(o.WIP), insightmodel.FormulaWIP, false)
+			@StatTile("Finished, 12 weeks", itoa(o.Finished), insightmodel.FormulaThroughput, false)
+			if o.Cycle.Shown() {
+				@StatTile("Cycle time p50 / p85", Duration(o.Cycle.P50)+" / "+Duration(o.Cycle.P85), fmt.Sprintf("n = %d. %s", o.Cycle.N, insightmodel.FormulaCycleTime), false)
+			} else {
+				@StatTile("Cycle time p50 / p85", "n = "+itoa(o.Cycle.N), fmt.Sprintf("shown from %d finished cards with a recorded start. %s", insightmodel.MinSample, insightmodel.FormulaCycleTime), false)
+			}
+			@StatTile("Debt share of open work", Percent(o.OpenDebt, o.OpenTotal), fmt.Sprintf("%d of %d open cards. %s", o.OpenDebt, o.OpenTotal, insightmodel.FormulaDebtShare), false)
+		</div>
+		<div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+			@Section("Throughput per week", insightmodel.FormulaThroughput) {
+				if o.Finished == 0 {
+					<p class="text-sm text-muted-foreground">No card finished in the last 12 weeks.</p>
+				}
+				if o.UndatedDone > 0 {
+					<p class="text-sm text-muted-foreground">Not counted: { plural(o.UndatedDone, "Done card", "Done cards") } imported without a done date.</p>
+				}
+				@ColumnChart("Cards finished per week, last 12 weeks", weekBars(o))
+			}
+			@Section("Cards per status", "every card but milestones, by board column") {
+				@BarList("Cards per status", statusBars(o))
+			}
+		</div>
+		<div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+			@Section("Open work by type", insightmodel.FormulaDebtShare) {
+				@BarList("Open cards by type", typeBars(o))
+			}
+			@Section("Cycle time by type", insightmodel.FormulaCycleTime+"; percentiles from "+itoa(insightmodel.MinSample)+" cards") {
+				if len(o.CycleByType) == 0 {
+					<p class="text-sm text-muted-foreground">No finished card has a recorded start yet. Cycle time starts counting from cards moved through Camelot.</p>
+				} else {
+					<div class="overflow-x-auto" tabindex="0" role="region" aria-label="Cycle time by type">
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() {
+										Type
+									}
+									@table.Head(table.HeadProps{Class: "text-right"}) {
+										n
+									}
+									@table.Head(table.HeadProps{Class: "text-right"}) {
+										p50
+									}
+									@table.Head(table.HeadProps{Class: "text-right"}) {
+										p85
+									}
+								}
+							}
+							@table.Body() {
+								for _, tc := range o.CycleByType {
+									@table.Row() {
+										@table.Cell() {
+											{ string(tc.Type) }
+										}
+										@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+											{ itoa(tc.Cycle.N) }
+										}
+										if tc.Cycle.Shown() {
+											@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+												{ Duration(tc.Cycle.P50) }
+											}
+											@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+												{ Duration(tc.Cycle.P85) }
+											}
+										} else {
+											@table.Cell(table.CellProps{Class: "text-right text-muted-foreground"}) {
+												—
+											}
+											@table.Cell(table.CellProps{Class: "text-right text-muted-foreground"}) {
+												—
+											}
+										}
+									}
+								}
+							}
+						}
+					</div>
+				}
+			}
+		</div>
+		@Section("Milestones", "Done cards ÷ cards in the milestone") {
+			if len(o.Milestones) == 0 {
+				<p class="text-sm text-muted-foreground">No milestones yet.</p>
+			} else {
+				<div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+					for _, m := range o.Milestones {
+						<div class="grid min-w-0 gap-2 rounded-xl border p-3">
+							<div class="flex items-baseline justify-between gap-2 text-sm">
+								<a href={ TaskHref(m.Card.ID) } class="min-w-0 font-medium hover:underline">{ m.Card.ID } · { m.Card.Title }</a>
+								<span class="shrink-0 tabular-nums text-muted-foreground">{ itoa(m.Done) }/{ itoa(m.Total) }</span>
+							</div>
+							@progress.Progress(progress.Props{Value: m.Done, Max: max(m.Total, 1), Attributes: templ.Attributes{"aria-label": m.Card.ID + " progress"}})
+						</div>
+					}
+				</div>
+			}
+		}
+		@Section("Work item age", insightmodel.FormulaAge+". Flagged: older than "+ageThreshold(o)+".") {
+			@inFlightTable(o)
+		}
+	}
+}
+
+// Bar is one labelled value of a chart.
+type Bar struct {
+	Label string
+	Value int
+	Href  string
+}
+
+func weekBars(o *insightmodel.Overview) []Bar {
+	var bars []Bar
+	for _, w := range o.Throughput {
+		bars = append(bars, Bar{Label: Day(w.Start), Value: w.Count})
+	}
+	return bars
+}
+
+func statusBars(o *insightmodel.Overview) []Bar {
+	var bars []Bar
+	for _, s := range o.ByStatus {
+		bars = append(bars, Bar{Label: s.Status.Label(), Value: s.Count, Href: "/board"})
+	}
+	return bars
+}
+
+func typeBars(o *insightmodel.Overview) []Bar {
+	var bars []Bar
+	for _, t := range o.Open {
+		bars = append(bars, Bar{Label: string(t.Type), Value: t.Count, Href: "/board?type=" + string(t.Type)})
+	}
+	return bars
+}
+
+func maxBar(bars []Bar) int {
+	m := 0
+	for _, b := range bars {
+		m = max(m, b.Value)
+	}
+	return m
+}
+
+// ColumnChart is a single-series column chart over time: one hue, a 2px gap
+// between columns, rounded data ends on a baseline, the value above each
+// non-zero column, a hover title per column and a table view.
+templ ColumnChart(title string, bars []Bar) {
+	{{ maxV := max(maxBar(bars), 1) }}
+	{{ n := max(len(bars), 1) }}
+	<figure class="grid gap-2">
+		<svg viewBox="0 0 600 220" class="h-auto w-full" role="img" aria-label={ title }>
+			<line x1="0" y1="190" x2="600" y2="190" class="stroke-border" stroke-width="1"></line>
+			for i, b := range bars {
+				{{ w := 600.0 / float64(n) }}
+				{{ h := percentOf(b.Value, maxV) * 1.6 }}
+				<g>
+					<title>{ b.Label }: { itoa(b.Value) }</title>
+					<rect x={ fmt.Sprintf("%.1f", float64(i)*w) } y="20" width={ fmt.Sprintf("%.1f", w) } height="190" fill="transparent"></rect>
+					if b.Value > 0 {
+						<rect x={ fmt.Sprintf("%.1f", float64(i)*w+1) } y={ fmt.Sprintf("%.1f", 190-h) } width={ fmt.Sprintf("%.1f", w-2) } height={ fmt.Sprintf("%.1f", h) } rx="4" class="fill-series-1"></rect>
+						<text x={ fmt.Sprintf("%.1f", float64(i)*w+w/2) } y={ fmt.Sprintf("%.1f", 184-h) } text-anchor="middle" class="fill-foreground text-[11px] tabular-nums">{ itoa(b.Value) }</text>
+					}
+					if i%2 == 0 || n <= 6 {
+						<text x={ fmt.Sprintf("%.1f", float64(i)*w+w/2) } y="208" text-anchor="middle" class="fill-muted-foreground text-[10px]">{ b.Label }</text>
+					}
+				</g>
+			}
+		</svg>
+		@chartTable(title, bars)
+	</figure>
+}
+
+// BarList is a single-series horizontal bar list: labels left, the value
+// right, one hue; rows link where the bar has a target.
+templ BarList(title string, bars []Bar) {
+	{{ maxV := max(maxBar(bars), 1) }}
+	<figure class="grid gap-2">
+		<ul class="grid gap-1.5" aria-label={ title }>
+			for _, b := range bars {
+				<li class="grid grid-cols-[9rem_1fr_2.5rem] items-center gap-2 text-sm">
+					if b.Href != "" {
+						<a href={ b.Href } class="truncate hover:underline">{ b.Label }</a>
+					} else {
+						<span class="truncate">{ b.Label }</span>
+					}
+					<svg viewBox="0 0 100 10" preserveAspectRatio="none" class="h-3 w-full" aria-hidden="true">
+						<title>{ b.Label }: { itoa(b.Value) }</title>
+						if b.Value > 0 {
+							<rect x="0" y="0" width={ fmt.Sprintf("%.2f", percentOf(b.Value, maxV)) } height="10" rx="1.5" class="fill-series-1"></rect>
+						}
+					</svg>
+					<span class="text-right tabular-nums">{ itoa(b.Value) }</span>
+				</li>
+			}
+		</ul>
+	</figure>
+}
+
+// chartTable is a chart's data as a table, behind a disclosure.
+templ chartTable(title string, bars []Bar) {
+	<details class="text-sm">
+		<summary class="cursor-pointer text-muted-foreground">Show as a table</summary>
+		<div class="overflow-x-auto" tabindex="0" role="region" aria-label="Chart data">
+			@table.Table() {
+				@table.Caption() {
+					{ title }
+				}
+				@table.Body() {
+					for _, b := range bars {
+						@table.Row() {
+							@table.Cell() {
+								{ b.Label }
+							}
+							@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
+								{ itoa(b.Value) }
+							}
+						}
+					}
+				}
+			}
+		</div>
+	</details>
+}

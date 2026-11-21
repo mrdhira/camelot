@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Runs a camelot command where the database lives: inside the container
+# when the Docker stack serves (SQLite's locks do not cross the VM
+# boundary), else the native binary. Agents and .mcp.json call this.
+set -euo pipefail
+context=${CAMELOT_DOCKER_CONTEXT:-colima-wigataintech}
+if command -v docker >/dev/null 2>&1 &&
+	[ "$(docker --context "$context" inspect -f '{{.State.Running}}' camelot 2>/dev/null)" = "true" ]; then
+	exec docker --context "$context" exec -i -e "CAMELOT_ACTOR=${CAMELOT_ACTOR:-dita}" camelot /app/camelot "$@"
+fi
+exec camelot "$@"

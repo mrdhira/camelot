@@ -1,0 +1,75 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - depguard
+    - errorlint
+    - forbidigo
+    - gosec
+  settings:
+    depguard:
+      rules:
+        # AGENTS.md rule 1: dependencies we never take.
+        forbidden:
+          list-mode: lax
+          deny:
+            - pkg: github.com/google/uuid
+              desc: use the stdlib uuid package
+            - pkg: github.com/spf13/cobra
+              desc: use w-tools cli
+            - pkg: github.com/spf13/viper
+              desc: use w-tools cli
+            - pkg: github.com/stretchr/testify
+              desc: use the stdlib testing package
+            - pkg: github.com/gin-gonic/
+              desc: web framework; use w-tools httpx
+            - pkg: github.com/labstack/echo
+              desc: web framework; use w-tools httpx
+            - pkg: github.com/go-chi/
+              desc: web framework; use w-tools httpx
+            - pkg: gorm.io/
+              desc: ORM; use database/sql
+            - pkg: github.com/sirupsen/logrus
+              desc: use slog via w-tools logger
+            - pkg: go.uber.org/zap
+              desc: use slog via w-tools logger
+            - pkg: github.com/rs/zerolog
+              desc: use slog via w-tools logger
+            - pkg: net/http/pprof
+              desc: no debug endpoints
+        # AGENTS.md rule 3: the domains and transports never reach up into
+        # the pages, the web handler or the command tree.
+        layers:
+          list-mode: lax
+          files:
+            - "**/internal/task*/**"
+            - "**/internal/doc*/**"
+            - "**/internal/insight*/**"
+            - "**/internal/mcphandler/**"
+            - "**/internal/pkg/**"
+          deny:
+            - { pkg: github.com/mrdhira/camelot/services/camelot/src, desc: "only cockpithandler renders pages" }
+            - { pkg: github.com/mrdhira/camelot/services/camelot/cmd, desc: "cmd composes; nothing imports it" }
+            - { pkg: github.com/mrdhira/camelot/services/camelot/internal/cockpithandler, desc: "transports never import each other" }
+        # internal/pkg has no app knowledge.
+        pkg-leaf:
+          list-mode: lax
+          files:
+            - "**/internal/pkg/**"
+          deny:
+            - { pkg: github.com/mrdhira/camelot/services/camelot/internal/task, desc: "internal/pkg imports no domain" }
+            - { pkg: github.com/mrdhira/camelot/services/camelot/internal/doc, desc: "internal/pkg imports no domain" }
+            - { pkg: github.com/mrdhira/camelot/services/camelot/internal/insight, desc: "internal/pkg imports no domain" }
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^template\.(HTML|JS|URL|CSS|HTMLAttr|JSStr|Srcset)$
+          pkg: ^html/template$
+          msg: escaping bypass (AGENTS.md rule 6)
+  exclusions:
+    generated: lax
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
