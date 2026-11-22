@@ -46,6 +46,9 @@ services:
     build:
       context: ../..
       dockerfile: services/camelot/Dockerfile
+      args:
+        VERSION: ${CAMELOT_VERSION:-dev}
+        REVISION: ${CAMELOT_REVISION:-unknown}
     container_name: camelot
     hostname: camelot
     environment:

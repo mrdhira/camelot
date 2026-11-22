@@ -5,6 +5,11 @@ SERVICE  := services/camelot
 BIN      := bin/camelot
 GO_FILES := ./...
 
+# The version every build carries (the MCP server reports it): the git tag,
+# with commits since it and -dirty for uncommitted changes, as releases do.
+VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS  := -X github.com/mrdhira/camelot/$(SERVICE)/cmd.Version=$(VERSION)
+
 # Tailwind standalone CLI, downloaded into bin/ and checked against its
 # pinned sha256 on every run. The shadcn-templ theme and component sources
 # come from the module pinned in go.mod, exposed to tailwind.css in
@@ -52,7 +57,7 @@ css: ## Tailwind $(TAILWIND): tailwind.css -> app.css (committed)
 
 .PHONY: build
 build: generate css ## build bin/camelot (CGO off)
-	CGO_ENABLED=0 go build -trimpath -o $(BIN) ./$(SERVICE)
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./$(SERVICE)
 
 .PHONY: run
 run: build ## serve natively on http://127.0.0.1:7700 for the vault two levels up (no Docker)
@@ -60,7 +65,7 @@ run: build ## serve natively on http://127.0.0.1:7700 for the vault two levels u
 
 .PHONY: install
 install: build ## install camelot into GOBIN for agents (CLI and MCP)
-	CGO_ENABLED=0 go install -trimpath ./$(SERVICE)
+	CGO_ENABLED=0 go install -trimpath -ldflags "$(LDFLAGS)" ./$(SERVICE)
 
 .PHONY: vendor-check
 vendor-check: ## verify the committed third-party frontend files
@@ -83,7 +88,7 @@ check: ## quality gate: fmt, vet, lint, tidy, templ + css freshness, vendor pins
 	@$(MAKE) -s vendor-check
 	@! grep -rn 'templ.Raw' $(SERVICE)/src --include='*.templ' | grep -v 'templ.Raw(string(p.HTML))\|templ.Raw(string(p.Description))\|templ.Raw(string(html))' \
 		|| { echo "templ.Raw outside the rendered-Markdown slots (markdown.HTML values)"; exit 1; }
-	CGO_ENABLED=0 go build -trimpath -o $(BIN) ./$(SERVICE)
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./$(SERVICE)
 	go test -race $(GO_FILES)
 	govulncheck $(GO_FILES)
 
@@ -107,7 +112,7 @@ VAULT   := $(abspath ../..)
 up: ## build the image and serve http://camelot.localhost (Colima profile $(COLIMA_PROFILE)); refused while a native camelot serve runs
 	@! pgrep -fl 'camelot( .*)? serve' || { echo "up: a native camelot serve holds the database; stop it first (SQLite cannot be shared across the VM)"; exit 1; }
 	mkdir -p $(VAULT)/.camelot
-	CAMELOT_VAULT_DIR=$(VAULT) $(COMPOSE) up --build --detach --wait
+	CAMELOT_VAULT_DIR=$(VAULT) CAMELOT_VERSION=$(VERSION) CAMELOT_REVISION=$$(git rev-parse HEAD) $(COMPOSE) up --build --detach --wait
 	@echo "Camelot: http://camelot.localhost · agents: scripts/camelot (docker exec while the stack serves)"
 
 .PHONY: down
