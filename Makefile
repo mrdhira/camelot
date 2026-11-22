@@ -41,8 +41,9 @@ css: ## Tailwind $(TAILWIND): tailwind.css -> app.css (committed)
 		https://github.com/tailwindlabs/tailwindcss/releases/download/$(TAILWIND)/tailwindcss-$$p || { rm -f "$$tw"; exit 1; }; fi; \
 	echo "$$sum  $$tw" | shasum -a 256 -c --status || { rm -f "$$tw"; echo "css: $$tw sha256 mismatch, removed"; exit 1; }; \
 	chmod +x "$$tw" || exit 1; \
+	go mod download github.com/axadrn/shadcn-templ/v2 || exit 1; \
 	dir=$$(go list -m -f '{{.Dir}}' github.com/axadrn/shadcn-templ/v2) && [ -n "$$dir" ] || \
-		{ echo "css: shadcn-templ module not downloaded (go mod download)"; exit 1; }; \
+		{ echo "css: shadcn-templ module not found after go mod download"; exit 1; }; \
 	gen=$(SERVICE)/src/.shadcn-templ; mkdir -p $$gen && ln -sfn "$$dir" $$gen/module && \
 	awk -v keep='$(CSS_KEEP)' 'BEGIN { on = 1 } \
 		/^  \/\* MARK: / { n = $$0; sub(/^  \/\* MARK: /, "", n); sub(/ \*\/$$/, "", n); on = index(keep, "|" n "|") > 0 } \
