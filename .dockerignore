@@ -3,6 +3,8 @@
 !go.mod
 !go.sum
 !services/
+!LICENSE.md
+!scripts/notices
 services/camelot/Dockerfile
 **/*_test.go
 **/*taskservicetest/
