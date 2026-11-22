@@ -13,7 +13,44 @@ Given("Dhira opens {string}", async ({ page }, path: string) => {
 Given("Dhira opens {string} on a {int} px wide screen", async ({ page }, path: string, width: number) => {
   await page.setViewportSize({ width, height: 900 });
   await page.goto(path);
-  await page.screenshot({ path: `test-results/visual/${width}${path.replaceAll("/", "_") || "_root"}.png`, fullPage: true, animations: "disabled" });
+  const dark = await page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches);
+  await page.screenshot({ path: `test-results/visual/${dark ? "dark-" : ""}${width}${path.replaceAll("/", "_") || "_root"}.png`, fullPage: true, animations: "disabled" });
+});
+
+Given("Dhira's system is set to dark", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+});
+
+// background is the page's background colour as the browser computed it.
+const background = (page: import("@playwright/test").Page) => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+// light is the light theme's background (oklch(1 0 0), white).
+const light = /^(rgb\(255, 255, 255\)|oklch\(1 0 0\))$/;
+
+Then("the page is dark", async ({ page }) => {
+  await expect.poll(() => background(page)).toBe("rgb(8, 11, 16)");
+});
+
+Then("the page is light", async ({ page }) => {
+  await expect.poll(() => background(page)).toMatch(light);
+});
+
+// themeSwitch is the header's light/dark switch.
+const themeSwitch = (page: import("@playwright/test").Page) => page.getByRole("button", { name: /^Dark theme:/ });
+
+Then("the theme switch shows {string}", async ({ page }, name: string) => {
+  await expect(themeSwitch(page)).toContainText(name);
+  await expect(themeSwitch(page)).toHaveAttribute("aria-pressed", String(name === "Dark"));
+});
+
+When("he flips the theme switch", async ({ page }) => {
+  await themeSwitch(page).click();
+});
+
+Then("after a reload the page is still light", async ({ page }) => {
+  await page.reload();
+  await expect.poll(() => background(page)).toMatch(light);
+  await expect(themeSwitch(page)).toContainText("Light");
 });
 
 Then("he sees the heading {string}", async ({ page }, name: string) => {

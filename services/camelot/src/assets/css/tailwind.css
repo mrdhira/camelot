@@ -7,6 +7,19 @@
 @source "../js";
 @source "../../.shadcn-templ/module/components/{alert,badge,button,card,dialog,empty,field,input,nativeselect,progress,sheet,table,textarea,tooltip}/*.templ";
 
+/* Dark: the .dark class (chosen in the header), or the system's dark
+   setting unless .light was chosen; js/theme.js sets the class before paint. */
+@custom-variant dark {
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not(.light), :root:not(.light) *) {
+      @slot;
+    }
+  }
+}
+
 /* Freshly changed cards after a live refresh (live.js adds .is-fresh). */
 @keyframes fresh {
   from { box-shadow: 0 0 0 3px var(--series-1); }
@@ -94,6 +107,40 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  color-scheme: light;
+}
+
+/* Dark is mission control: near-black panels, a cyan accent. */
+:root {
+  @variant dark {
+    --background: #080b10;
+    --foreground: #e3e9f0;
+    --card: #0d1218;
+    --card-foreground: #e3e9f0;
+    --popover: #0d1218;
+    --popover-foreground: #e3e9f0;
+    --primary: #6cc7d9;
+    --primary-foreground: #06222a;
+    --secondary: #121922;
+    --secondary-foreground: #e3e9f0;
+    --muted: #121922;
+    --muted-foreground: #8d9aab;
+    --accent: #16202b;
+    --accent-foreground: #e3e9f0;
+    --destructive: #e66767;
+    --border: #1c2530;
+    --input: #2a3644;
+    --ring: #6cc7d9;
+    --sidebar: #0d1218;
+    --sidebar-foreground: #e3e9f0;
+    --sidebar-primary: #6cc7d9;
+    --sidebar-primary-foreground: #06222a;
+    --sidebar-accent: #121922;
+    --sidebar-accent-foreground: #e3e9f0;
+    --sidebar-border: #1c2530;
+    --sidebar-ring: #6cc7d9;
+    color-scheme: dark;
+  }
 }
 
 /* Chart roles (dataviz reference palette, validated on the white surface).
@@ -111,6 +158,22 @@
   --stage-qa: #2a78d6;
   --stage-review: #e87ba4;
   --stage-done: #008300;
+}
+
+/* The same hues stepped for the dark surface (validated on #0d1218). */
+:root {
+  @variant dark {
+    --series-1: #3987e5;
+    --status-critical: #e66767;
+    --status-good: #0ca30c;
+    --stage-backlog: #8d9aab;
+    --stage-todo: #c98500;
+    --stage-plan: #9085e9;
+    --stage-wip: #d95926;
+    --stage-qa: #3987e5;
+    --stage-review: #d55181;
+    --stage-done: #0ca30c;
+  }
 }
 
 @theme inline {
@@ -132,6 +195,26 @@
    it wins over the component's own rule. */
 [data-slot="table-container"] {
   overflow: visible;
+}
+
+/* Mission-control touches, dark only: status lights glow; section
+   headings and big numbers in monospace. */
+@layer components {
+  [data-light] {
+    @variant dark {
+      box-shadow: 0 0 6px currentColor;
+    }
+  }
+  .section-title, .stat-number {
+    @variant dark {
+      @apply font-mono;
+    }
+  }
+  .section-title {
+    @variant dark {
+      @apply uppercase tracking-[0.08em];
+    }
+  }
 }
 
 .is-fresh {

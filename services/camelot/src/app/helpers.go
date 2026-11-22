@@ -127,13 +127,13 @@ func percentOf(v, maxV int) float64 {
 
 // stageDots are the stages' colour classes (always shown with the stage's label).
 var stageDots = map[taskmodel.Status]string{
-	taskmodel.StatusBacklog: "bg-stage-backlog",
-	taskmodel.StatusTodo:    "bg-stage-todo",
-	taskmodel.StatusPlan:    "bg-stage-plan",
-	taskmodel.StatusWIP:     "bg-stage-wip",
-	taskmodel.StatusQA:      "bg-stage-qa",
-	taskmodel.StatusReview:  "bg-stage-review",
-	taskmodel.StatusDone:    "bg-stage-done",
+	taskmodel.StatusBacklog: "bg-stage-backlog text-stage-backlog",
+	taskmodel.StatusTodo:    "bg-stage-todo text-stage-todo",
+	taskmodel.StatusPlan:    "bg-stage-plan text-stage-plan",
+	taskmodel.StatusWIP:     "bg-stage-wip text-stage-wip",
+	taskmodel.StatusQA:      "bg-stage-qa text-stage-qa",
+	taskmodel.StatusReview:  "bg-stage-review text-stage-review",
+	taskmodel.StatusDone:    "bg-stage-done text-stage-done",
 }
 
 // stageDot is a stage's colour class.

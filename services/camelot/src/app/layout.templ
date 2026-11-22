@@ -51,6 +51,7 @@ templ Layout(title, active string, scripts ...string) {
 			<title>{ title } · Camelot</title>
 			<link rel="stylesheet" href={ assets.Path("css/app.css") }/>
 			<link rel="icon" href="data:,"/>
+			<script src={ assets.Path("js/theme.js") }></script>
 		</head>
 		<body class="min-h-dvh" data-stamp={ shell.Stamp }>
 			<a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2">Skip to content</a>
@@ -66,13 +67,18 @@ templ Layout(title, active string, scripts ...string) {
 						}
 					</nav>
 					<p id="live" class="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex" data-as-of={ ISO(shell.AsOf) }>
-						<span aria-hidden="true" class="size-1.5 rounded-full bg-stage-done"></span>
+						<span aria-hidden="true" class="size-1.5 rounded-full bg-stage-done text-stage-done" data-light></span>
 						<span data-live-text>live</span>
 					</p>
 					<button type="button" class="hidden h-8 items-center gap-2 rounded-md border px-2.5 text-xs text-muted-foreground hover:bg-muted sm:flex" { dialog.TriggerFor(PaletteID)... } aria-keyshortcuts="Meta+K Control+K">
 						Search
 						<kbd aria-hidden="true" class="rounded border bg-background px-1 font-mono text-[10px] text-foreground">⌘K</kbd>
 					</button>
+					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "max-sm:hidden", Attributes: templ.Attributes{"hidden": true, "data-theme-toggle": true, "title": "Switch between light and dark (until switched, the system setting applies)"}}) {
+						<span aria-hidden="true">◐</span>
+						<span class="sr-only">Dark theme: </span>
+						<span data-theme-name>Light</span>
+					}
 					@button.Button(button.Props{Href: "/tasks/new", Size: button.SizeSm}) {
 						<span aria-hidden="true" class="sm:hidden">+</span>
 						<span class="sr-only sm:not-sr-only">New card</span>
@@ -184,7 +190,7 @@ templ PageHeader(title, description string) {
 templ Section(title, note string) {
 	<section class="grid min-w-0 grid-cols-1 content-start gap-3" aria-label={ title }>
 		<div class="grid gap-0.5">
-			<h2 class="text-base font-semibold">{ title }</h2>
+			<h2 class="section-title text-base font-semibold">{ title }</h2>
 			if note != "" {
 				<p class="text-xs text-muted-foreground">{ note }</p>
 			}

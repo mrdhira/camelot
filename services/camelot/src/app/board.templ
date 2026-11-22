@@ -160,7 +160,7 @@ templ boardColumn(col BoardColumn) {
 	<section data-column={ string(col.Status) } class={ "flex min-h-40 shrink-0 flex-col gap-2 rounded-xl bg-muted/50 p-2 ring-series-1 transition", templ.KV("min-w-48 max-w-80 flex-1 basis-0", !isEmpty), templ.KV("w-28", isEmpty) } aria-labelledby={ "col-" + string(col.Status) }>
 		<header class="flex items-center justify-between gap-2 px-1 pt-1">
 			<h2 id={ "col-" + string(col.Status) } class="flex items-center gap-1.5 text-sm font-semibold">
-				<span aria-hidden="true" class={ "size-2 shrink-0 rounded-full", stageDot(col.Status) }></span>
+				<span aria-hidden="true" data-light class={ "size-2 shrink-0 rounded-full", stageDot(col.Status) }></span>
 				{ col.Status.Label() }
 			</h2>
 			<span class="text-xs tabular-nums text-muted-foreground" title={ col.Status.Stage() }>{ itoa(len(col.Cards) + col.Hidden) }</span>

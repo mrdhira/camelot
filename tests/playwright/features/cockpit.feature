@@ -99,6 +99,17 @@ Feature: Dhira runs his agents' work from the cockpit
     Then he sees the heading "FIX — Plan"
     And he sees a table with "go-engineer"
 
+  Scenario: The theme follows the system until switched, then stays (from tablet width up; a phone follows the system)
+    Given Dhira's system is set to dark
+    And Dhira opens "/"
+    Then the page is dark
+    And the theme switch shows "Dark"
+    When he flips the theme switch
+    Then the page is light
+    And after a reload the page is still light
+    When he flips the theme switch
+    Then the page is dark
+
   Scenario Outline: Every page is accessible and fits a phone
     Given Dhira opens "<path>" on a 390 px wide screen
     Then the page has no horizontal scroll
@@ -128,3 +139,21 @@ Feature: Dhira runs his agents' work from the cockpit
       | /insights      |
       | /docs          |
       | /tasks/FIX-011 |
+
+  Scenario Outline: Every page is accessible in the dark theme
+    Given Dhira's system is set to dark
+    And Dhira opens "<path>" on a <width> px wide screen
+    Then the page has no horizontal scroll
+    And the page has no detectable accessibility violations
+
+    Examples:
+      | path           | width |
+      | /              | 1280  |
+      | /board         | 1280  |
+      | /insights      | 1280  |
+      | /docs          | 1280  |
+      | /docs/PRD900   | 1280  |
+      | /tasks/FIX-011 | 1280  |
+      | /              | 390   |
+      | /tasks/FIX-011 | 390   |
+      | /docs/PRD900   | 390   |

@@ -12,7 +12,7 @@ import (
 // StageBadge is a stage's colour dot beside its label (the colour never stands alone).
 templ StageBadge(s taskmodel.Status) {
 	<span class="inline-flex items-center gap-1.5 text-xs font-medium">
-		<span aria-hidden="true" class={ "size-2 shrink-0 rounded-full", stageDot(s) }></span>
+		<span aria-hidden="true" data-light class={ "size-2 shrink-0 rounded-full", stageDot(s) }></span>
 		{ s.Label() }
 	</span>
 }
