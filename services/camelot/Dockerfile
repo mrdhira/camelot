@@ -7,6 +7,7 @@ ARG GO_IMAGE=golang:1.27.4
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=dev
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly
 RUN mkdir -p /rootfs/etc/ssl/certs /rootfs/usr/share /rootfs/home/nonroot /rootfs/tmp && \
     cp /etc/ssl/certs/ca-certificates.crt /rootfs/etc/ssl/certs/ && \
@@ -23,7 +24,7 @@ COPY services/ services/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
-    go build -trimpath -ldflags "-s -w" -o /out/camelot ./services/camelot
+    go build -trimpath -ldflags "-s -w -X github.com/mrdhira/camelot/services/camelot/cmd.Version=${VERSION}" -o /out/camelot ./services/camelot
 
 FROM scratch AS runtime
 ARG VERSION=unknown
