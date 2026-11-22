@@ -5,8 +5,8 @@ Feature: Dhira runs his agents' work from the cockpit
 
   Scenario: The cockpit opens on what changed, then what waits for Dhira
     Given Dhira opens "/"
-    Then the first heading is "7 updates"
-    And the updates list "FIX-016" first
+    Then the first heading is "9 updates"
+    And the updates list "PRD900" first
     And he sees the heading "Waiting for your decision"
     And he sees "Approve the fixture?"
     And he sees the document "PRD900" waiting for review
@@ -78,8 +78,8 @@ Feature: Dhira runs his agents' work from the cockpit
   Scenario: A new card takes the next number of its prefix
     Given Dhira opens "/tasks/new"
     When he fills "Prefix for the next number" with "FIX" and "Title" with "Made in the browser" and presses "Save"
-    Then he is on the page of card "FIX-017"
-    And the history of "FIX-017" shows "created in Backlog" by "you"
+    Then he is on the page of card "FIX-018"
+    And the history of "FIX-018" shows "created in Backlog" by "you"
 
   Scenario: A refused card comes back with the reason
     Given Dhira opens "/tasks/new"
@@ -98,6 +98,24 @@ Feature: Dhira runs his agents' work from the cockpit
     Given Dhira opens "/tasks/FIX-011/files/PLAN.md"
     Then he sees the heading "FIX — Plan"
     And he sees a table with "go-engineer"
+
+  Scenario: A comment on a card waits for the agent's reply, then is resolved
+    Given Dhira opens "/tasks/FIX-017"
+    When he comments "Please split the plan in two."
+    Then he sees "Feedback for the agent: no reply yet"
+    And on the board, card "FIX-017" shows "Feedback for the agent" and "1 open comment"
+    Given Dhira opens "/tasks/FIX-017"
+    When the agent "go-engineer" comments "Split into two cards." on "FIX-017"
+    Then "Split into two cards." appears without a reload
+    And he no longer sees "Feedback for the agent: no reply yet"
+    When he resolves the comment "Please split the plan in two."
+    Then he sees "resolved by you"
+    And he sees "1 open"
+
+  Scenario: A comment on a section of a document
+    Given Dhira opens "/docs/PRD900"
+    When he comments "Which measure comes first?" about "Measures"
+    Then he sees the comment "Which measure comes first?" about "§ Measures"
 
   Scenario: The theme follows the system until switched, then stays (from tablet width up; a phone follows the system)
     Given Dhira's system is set to dark

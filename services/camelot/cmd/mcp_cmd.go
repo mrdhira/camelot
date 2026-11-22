@@ -21,7 +21,7 @@ func mcpCommand(load func() (*config.Config, error), out, logOut io.Writer) *cli
 		Short: "serve the MCP tools on stdio for agents (JSON-RPC, one message per line)",
 		Run: runWith(load, logOut, func(ctx context.Context, a *deps) error {
 			guard := func() error { return checkOwner(a.config.DB) }
-			server := mcphandler.New(mcphandler.Config{Name: "camelot", Version: Version, Actor: a.config.Actor, Guard: guard}, a.logger, a.tasks, a.docs, a.insights)
+			server := mcphandler.New(mcphandler.Config{Name: "camelot", Version: Version, Actor: a.config.Actor, Guard: guard}, a.logger, a.tasks, a.docs, a.insights, a.comments)
 			return server.Serve(ctx, os.Stdin, out)
 		}),
 	}

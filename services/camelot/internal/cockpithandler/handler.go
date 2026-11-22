@@ -12,6 +12,8 @@ import (
 	"github.com/Wigata-Intech/w-tools/httpx"
 	"github.com/a-h/templ"
 
+	"github.com/mrdhira/camelot/services/camelot/internal/commentmodel"
+	"github.com/mrdhira/camelot/services/camelot/internal/commentservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/docmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/docservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/feedmodel"
@@ -27,7 +29,7 @@ import (
 )
 
 // Actor is who the browser's changes are recorded as.
-const Actor = "dhira"
+const Actor = commentmodel.Owner
 
 // doneLimit is how many Done cards the board shows unless asked for all.
 const doneLimit = 20
@@ -47,11 +49,12 @@ type Handler struct {
 	insightSvc insightservice.Service
 	feedSvc    feedservice.Service
 	searchSvc  searchservice.Service
+	commentSvc commentservice.Service
 }
 
 // New returns the handler.
-func New(config Config, logger *slog.Logger, taskSvc taskservice.Service, docSvc docservice.Service, insightSvc insightservice.Service, feedSvc feedservice.Service, searchSvc searchservice.Service) *Handler {
-	return &Handler{config: config, logger: logger, taskSvc: taskSvc, docSvc: docSvc, insightSvc: insightSvc, feedSvc: feedSvc, searchSvc: searchSvc}
+func New(config Config, logger *slog.Logger, taskSvc taskservice.Service, docSvc docservice.Service, insightSvc insightservice.Service, feedSvc feedservice.Service, searchSvc searchservice.Service, commentSvc commentservice.Service) *Handler {
+	return &Handler{config: config, logger: logger, taskSvc: taskSvc, docSvc: docSvc, insightSvc: insightSvc, feedSvc: feedSvc, searchSvc: searchSvc, commentSvc: commentSvc}
 }
 
 // Routes registers every page on s; pages get the header's facts (shell).
@@ -80,6 +83,9 @@ func (h *Handler) Routes(s *httpx.Server) {
 	s.Get("/docs", h.docs)
 	s.Get("/docs/{id}", h.doc)
 	s.Post("/docs/{id}/status", h.docStatus)
+	s.Post("/tasks/{id}/comments", h.taskComment)
+	s.Post("/docs/{id}/comments", h.docComment)
+	s.Post("/comments/{cid}/resolve", h.commentResolve)
 }
 
 // healthz is GET /healthz: the process serves.
@@ -240,6 +246,11 @@ func (h *Handler) board(w http.ResponseWriter, r *http.Request) {
 			milestones = append(milestones, c)
 		}
 	}
+	summaries, err := h.commentSvc.Summaries(r.Context(), commentmodel.KindCard)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	p := app.BoardProps{Filter: filter, Milestones: milestones, DoneLimit: doneLimit}
 	for _, st := range taskmodel.Statuses {
 		col := app.BoardColumn{Status: st}
@@ -252,7 +263,7 @@ func (h *Handler) board(w http.ResponseWriter, r *http.Request) {
 				done = append(done, c)
 				continue
 			}
-			col.Cards = append(col.Cards, boardCard(c, status))
+			col.Cards = append(col.Cards, boardCard(c, status, summaries))
 		}
 		slices.SortStableFunc(done, func(a, b *taskmodel.Card) int { return b.UpdatedAt.Compare(a.UpdatedAt) })
 		for i, c := range done {
@@ -260,7 +271,7 @@ func (h *Handler) board(w http.ResponseWriter, r *http.Request) {
 				col.Hidden = len(done) - doneLimit
 				break
 			}
-			col.Cards = append(col.Cards, boardCard(c, status))
+			col.Cards = append(col.Cards, boardCard(c, status, summaries))
 		}
 		p.Total += len(col.Cards) + col.Hidden
 		p.Columns = append(p.Columns, col)
@@ -268,9 +279,9 @@ func (h *Handler) board(w http.ResponseWriter, r *http.Request) {
 	h.writePage(w, r, http.StatusOK, app.Board(p))
 }
 
-// boardCard flags a card blocked when a dependency is not Done.
-func boardCard(c *taskmodel.Card, status map[string]taskmodel.Status) app.BoardCard {
-	bc := app.BoardCard{Card: c}
+// boardCard flags a card blocked when a dependency is not Done, with its open comments.
+func boardCard(c *taskmodel.Card, status map[string]taskmodel.Status, comments map[string]commentmodel.Summary) app.BoardCard {
+	bc := app.BoardCard{Card: c, Comments: comments[c.ID]}
 	if c.Status != taskmodel.StatusDone {
 		for _, d := range c.Deps {
 			if status[d] != taskmodel.StatusDone {
@@ -330,10 +341,15 @@ func (h *Handler) taskProps(r *http.Request, id, errMsg string) (app.TaskProps, 
 	if err != nil && !errors.Is(err, taskmodel.ErrFolderMissing) {
 		return app.TaskProps{}, err
 	}
+	thread, err := h.commentSvc.Thread(r.Context(), &commentmodel.ListRequest{Kind: commentmodel.KindCard, TargetID: detail.Card.ID})
+	if err != nil {
+		return app.TaskProps{}, err
+	}
 	return app.TaskProps{
 		Detail:      detail,
 		Description: description,
 		Files:       files,
+		Thread:      thread,
 		Error:       errMsg,
 		Now:         time.Now().UTC(),
 	}, nil
@@ -604,12 +620,17 @@ func (h *Handler) docs(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	h.writePage(w, r, http.StatusOK, app.Docs(app.DocsProps{Overview: o, Tree: docTree(o.Docs), Roots: h.config.DocRoots}))
+	summaries, err := h.commentSvc.Summaries(r.Context(), commentmodel.KindDoc)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.writePage(w, r, http.StatusOK, app.Docs(app.DocsProps{Overview: o, Tree: docTree(o.Docs, summaries), Roots: h.config.DocRoots}))
 }
 
 // docTree arranges documents from the top of the chain down; a document
 // serving several shows under each, and one serving nothing known is a root.
-func docTree(docs []insightmodel.DocProgress) []app.DocNode {
+func docTree(docs []insightmodel.DocProgress, comments map[string]commentmodel.Summary) []app.DocNode {
 	byID := map[string]insightmodel.DocProgress{}
 	children := map[string][]string{}
 	for _, d := range docs {
@@ -630,7 +651,7 @@ func docTree(docs []insightmodel.DocProgress) []app.DocNode {
 	}
 	var build func(id string, seen map[string]bool) app.DocNode
 	build = func(id string, seen map[string]bool) app.DocNode {
-		n := app.DocNode{Progress: byID[id]}
+		n := app.DocNode{Progress: byID[id], Comments: comments[id].Open}
 		seen[id] = true
 		for _, c := range children[id] {
 			if !seen[c] {
@@ -700,7 +721,13 @@ func (h *Handler) renderDoc(w http.ResponseWriter, r *http.Request, status int, 
 		h.fail(w, r, err)
 		return
 	}
+	thread, err := h.commentSvc.Thread(ctx, &commentmodel.ListRequest{Kind: commentmodel.KindDoc, TargetID: chain.Doc.ID})
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	h.writePage(w, r, status, app.Doc(app.DocProps{
+		Thread:   thread,
 		Chain:    chain,
 		Progress: progress,
 		Cards:    cards,
@@ -742,14 +769,15 @@ func (h *Handler) docStatus(w http.ResponseWriter, r *http.Request) {
 // userError maps a refusal the user can fix to its status.
 func userError(err error) (int, bool) {
 	switch {
-	case errors.Is(err, taskmodel.ErrNotFound), errors.Is(err, docmodel.ErrNotFound), errors.Is(err, taskmodel.ErrFileNotFound):
+	case errors.Is(err, taskmodel.ErrNotFound), errors.Is(err, docmodel.ErrNotFound), errors.Is(err, taskmodel.ErrFileNotFound), errors.Is(err, commentmodel.ErrNotFound):
 		return http.StatusNotFound, true
 	case errors.Is(err, taskmodel.ErrStale), errors.Is(err, taskmodel.ErrExists):
 		return http.StatusConflict, true
 	case errors.Is(err, taskmodel.ErrNothingWaiting):
 		return http.StatusUnprocessableEntity, true
 	case errors.Is(err, taskmodel.ErrInvalidID), errors.Is(err, taskmodel.ErrInvalidStatus), errors.Is(err, taskmodel.ErrInvalidType),
-		errors.Is(err, taskmodel.ErrInvalidField), errors.Is(err, taskmodel.ErrInvalidLink), errors.Is(err, docmodel.ErrInvalid):
+		errors.Is(err, taskmodel.ErrInvalidField), errors.Is(err, taskmodel.ErrInvalidLink), errors.Is(err, docmodel.ErrInvalid),
+		errors.Is(err, commentmodel.ErrInvalid):
 		return http.StatusUnprocessableEntity, true
 	}
 	return 0, false

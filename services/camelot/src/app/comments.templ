@@ -1,0 +1,148 @@
+package app
+
+import (
+	"strconv"
+	"time"
+	"unicode/utf8"
+
+	"github.com/axadrn/shadcn-templ/v2/components/button"
+	"github.com/axadrn/shadcn-templ/v2/components/field"
+	"github.com/axadrn/shadcn-templ/v2/components/nativeselect"
+	"github.com/axadrn/shadcn-templ/v2/components/textarea"
+
+	"github.com/mrdhira/camelot/services/camelot/internal/commentmodel"
+	"github.com/mrdhira/camelot/services/camelot/internal/pkg/markdown"
+)
+
+// CommentsProps is a card's or document's comment thread; Sections are a
+// document's headings (the box offers them), Prefix keeps IDs unique when
+// the thread shows twice on a page (the side panel).
+type CommentsProps struct {
+	Kind     string
+	TargetID string
+	Thread   *commentmodel.Thread
+	Sections []markdown.Heading
+	Now      time.Time
+	Prefix   string
+}
+
+// action is where the thread's box posts.
+func (p CommentsProps) action() string {
+	if p.Kind == commentmodel.KindDoc {
+		return DocHref(p.TargetID) + "/comments"
+	}
+	return TaskHref(p.TargetID) + "/comments"
+}
+
+// Comments is the thread, oldest first (resolved ones dimmed), then the box.
+templ Comments(p CommentsProps) {
+	<section id={ p.Prefix + "camelot-comments" } class="grid min-w-0 gap-3" aria-labelledby={ p.Prefix + "camelot-comments-title" }>
+		<div class="flex flex-wrap items-baseline justify-between gap-2">
+			<h2 id={ p.Prefix + "camelot-comments-title" } class="section-title text-base font-semibold">
+				Comments
+				if p.Thread.Open > 0 {
+					<span class="text-sm font-normal text-muted-foreground">· { itoa(p.Thread.Open) } open</span>
+				}
+			</h2>
+			if p.Kind == commentmodel.KindCard && p.Thread.AwaitsReply {
+				<p class="text-xs font-medium" role="status"><span aria-hidden="true" class="text-series-1">● </span>Feedback for the agent: no reply yet</p>
+			}
+		</div>
+		if len(p.Thread.Comments) == 0 {
+			<p class="text-sm text-muted-foreground">No comments yet. Agents read open comments when they pick the { kindWord(p.Kind) } up.</p>
+		} else {
+			<ol class="grid gap-2">
+				for _, c := range p.Thread.Comments {
+					@comment(p, c)
+				}
+			</ol>
+		}
+		<form method="post" action={ p.action() } class="grid gap-2">
+			@field.Field() {
+				@field.Label(field.LabelProps{For: p.Prefix + "camelot-comment-body"}) {
+					Add a comment
+				}
+				@textarea.Textarea(textarea.Props{ID: p.Prefix + "camelot-comment-body", Name: "body", Rows: 3, Placeholder: "Feedback, a correction, a question for the agent…", Attributes: templ.Attributes{"required": true, "maxlength": strconv.Itoa(commentmodel.MaxBody)}})
+			}
+			<div class="flex flex-wrap items-end gap-2">
+				if len(p.Sections) > 0 {
+					@field.Field(field.Props{Class: "min-w-0 flex-1"}) {
+						@field.Label(field.LabelProps{For: p.Prefix + "camelot-comment-section"}) {
+							About
+						}
+						@nativeselect.NativeSelect(nativeselect.Props{ID: p.Prefix + "camelot-comment-section", Name: "section", Class: "w-full"}) {
+							@nativeselect.Option(nativeselect.OptionProps{Value: ""}) {
+								The whole document
+							}
+							for _, h := range p.Sections {
+								@nativeselect.Option(nativeselect.OptionProps{Value: h.ID}) {
+									{ h.Text }
+								}
+							}
+						}
+					}
+				}
+				@button.Button(button.Props{Type: button.TypeSubmit}) {
+					Comment
+				}
+			</div>
+		</form>
+	</section>
+}
+
+// comment is one comment with who, when, its section and, while open, Resolve.
+templ comment(p CommentsProps, c *commentmodel.Comment) {
+	<li id={ p.Prefix + "camelot-comment-" + strconv.FormatInt(c.ID, 10) } class={ "grid gap-1.5 rounded-lg border p-3 text-sm", templ.KV("bg-muted/40 text-muted-foreground", !c.Open()) }>
+		<p class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+			<span class="font-medium text-foreground">{ actorText(c.Actor) }</span>
+			<time datetime={ ISO(c.CreatedAt) } title={ When(c.CreatedAt) }>{ Ago(c.CreatedAt, p.Now) }</time>
+			if c.Section != "" {
+				<a href={ templ.SafeURL("#" + c.Section) } class="underline underline-offset-4">§ { sectionText(p.Sections, c.Section) }</a>
+			}
+			if !c.Open() {
+				<span>· resolved by { actorText(c.ResolvedBy) }</span>
+			}
+		</p>
+		<p class="whitespace-pre-wrap wrap-anywhere">{ c.Body }</p>
+		if c.ResolvedNote != "" {
+			<p class="text-xs">Resolution: { c.ResolvedNote }</p>
+		}
+		if c.Open() {
+			<form method="post" action={ templ.SafeURL("/comments/" + strconv.FormatInt(c.ID, 10) + "/resolve") }>
+				@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, Size: button.SizeXs, Attributes: templ.Attributes{"aria-label": "Resolve the comment by " + actorText(c.Actor) + ", " + Ago(c.CreatedAt, p.Now)}}) {
+					Resolve
+				}
+			</form>
+		}
+	</li>
+}
+
+// kindWord names a comment target's kind.
+func kindWord(kind string) string {
+	if kind == commentmodel.KindDoc {
+		return "document"
+	}
+	return "card"
+}
+
+// sectionText is a heading's text, its anchor when the heading is gone.
+func sectionText(sections []markdown.Heading, id string) string {
+	for _, h := range sections {
+		if h.ID == id {
+			return h.Text
+		}
+	}
+	return id
+}
+
+// commentText is a comment row in the feed's words.
+func commentText(c *commentmodel.Comment) string {
+	if c.ResolvesID != 0 {
+		return "resolved a comment"
+	}
+	body := c.Body
+	if utf8.RuneCountInString(body) > 80 {
+		body = string([]rune(body)[:80]) + "…"
+	}
+	return "commented: “" + body + "”"
+}

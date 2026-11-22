@@ -29,7 +29,7 @@ func serveGuarded(t *testing.T, guard func() error, lines ...string) map[float64
 	h := taskservicetest.New(t)
 	h.Seed(t)
 	server := mcphandler.New(mcphandler.Config{Name: "camelot", Version: "test", Actor: "dita", Guard: guard}, slog.New(slog.NewTextHandler(io.Discard, nil)),
-		h.Tasks, h.Docs, insightservice.New(h.Tasks, h.Docs))
+		h.Tasks, h.Docs, insightservice.New(h.Tasks, h.Docs), h.Comments)
 	var out bytes.Buffer
 	if err := server.Serve(context.Background(), strings.NewReader(strings.Join(lines, "\n")+"\n"), &out); err != nil {
 		t.Fatal(err)
@@ -96,6 +96,26 @@ func TestServe(t *testing.T) {
 			},
 		},
 		{
+			name: "comments: add, read with the card, resolve",
+			input: []string{
+				`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}`,
+				`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+				`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"add_comment","arguments":{"kind":"card","id":"DITA-001","body":"Split the plan.","actor":"dhira"}}}`,
+				`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_task","arguments":{"id":"DITA-001"}}}`,
+				`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"resolve_comment","arguments":{"comment":1,"note":"split into DITA-002"}}}`,
+				`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"list_comments","arguments":{"kind":"card","id":"DITA-001","open_only":true}}}`,
+				`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"add_comment","arguments":{"kind":"doc","id":"PRD001","section":"nope","body":"x"}}}`,
+			},
+			expected: []check{
+				{2, []string{"result", "structuredContent", "actor"}, "dhira"},
+				{3, []string{"result", "structuredContent", "card", "id"}, "DITA-001"},
+				{3, []string{"result", "structuredContent", "comments", "awaits_reply"}, true},
+				{4, []string{"result", "structuredContent", "resolved_by"}, "dita"},
+				{5, []string{"result", "structuredContent", "open"}, float64(0)},
+				{6, []string{"result", "isError"}, true},
+			},
+		},
+		{
 			name: "an unknown requested version gets one the server supports",
 			input: []string{
 				`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"1999-01-01"}}`,
@@ -149,7 +169,7 @@ func TestToolsList(t *testing.T) {
 			t.Errorf("%v inputSchema.type = %v, want object", m["name"], at(m, "inputSchema", "type"))
 		}
 	}
-	want := "list_tasks get_task create_task update_task delete_task list_docs get_doc set_doc_status insights check"
+	want := "list_tasks get_task create_task update_task delete_task list_docs get_doc set_doc_status list_comments add_comment resolve_comment insights check"
 	if strings.Join(names, " ") != want {
 		t.Errorf("tools = %v, want %s", names, want)
 	}

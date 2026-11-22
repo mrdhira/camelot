@@ -23,8 +23,8 @@ func New(db *sql.DB) *Store {
 // SeenSelect returns the marker; nil when never set.
 func (s *Store) SeenSelect(ctx context.Context) (*feedmodel.Seen, error) {
 	seen := &feedmodel.Seen{}
-	err := s.db.QueryRowContext(ctx, "SELECT card_event_id, doc_event_id, seen_at FROM feed_seen WHERE id = 1").
-		Scan(&seen.Stamp.CardEventID, &seen.Stamp.DocEventID, &seen.At)
+	err := s.db.QueryRowContext(ctx, "SELECT card_event_id, doc_event_id, comment_id, seen_at FROM feed_seen WHERE id = 1").
+		Scan(&seen.Stamp.CardEventID, &seen.Stamp.DocEventID, &seen.Stamp.CommentID, &seen.At)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -36,13 +36,15 @@ func (s *Store) SeenSelect(ctx context.Context) (*feedmodel.Seen, error) {
 
 // SeenUpdate records the marker; each event ID only moves forward.
 func (s *Store) SeenUpdate(ctx context.Context, seen *feedmodel.Seen) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO feed_seen (id, card_event_id, doc_event_id, seen_at) VALUES (1, ?, ?, ?)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO feed_seen (id, card_event_id, doc_event_id, comment_id, seen_at) VALUES (1, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			card_event_id = MAX(feed_seen.card_event_id, excluded.card_event_id),
 			doc_event_id = MAX(feed_seen.doc_event_id, excluded.doc_event_id),
+			comment_id = MAX(feed_seen.comment_id, excluded.comment_id),
 			seen_at = excluded.seen_at`,
 		seen.Stamp.CardEventID,
 		seen.Stamp.DocEventID,
+		seen.Stamp.CommentID,
 		seen.At,
 	)
 	if err != nil {

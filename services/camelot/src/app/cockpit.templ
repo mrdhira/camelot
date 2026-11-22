@@ -318,24 +318,34 @@ templ StatTile(label, value, formula, href string, attention bool) {
 
 // latestText is an item's newest change in words.
 func latestText(it *feedmodel.Item) string {
-	if len(it.CardEvents) > 0 && (len(it.DocEvents) == 0 || !it.DocEvents[0].CreatedAt.After(it.CardEvents[0].CreatedAt)) {
-		return eventText(it.CardEvents[0])
-	}
-	if len(it.DocEvents) > 0 {
-		return docEventText(it.DocEvents[0])
-	}
-	return ""
+	text, _ := latest(it)
+	return text
 }
 
 // latestActor names who made an item's newest change.
 func latestActor(it *feedmodel.Item) string {
+	_, actor := latest(it)
+	return actorText(actor)
+}
+
+// latest is an item's newest change and its actor: card history, then
+// document history, then comments; a later one wins.
+func latest(it *feedmodel.Item) (string, string) {
+	var text, actor string
+	var at time.Time
 	if len(it.CardEvents) > 0 {
-		return actorText(it.CardEvents[0].Actor)
+		e := it.CardEvents[0]
+		text, actor, at = eventText(e), e.Actor, e.CreatedAt
 	}
-	if len(it.DocEvents) > 0 {
-		return actorText(it.DocEvents[0].Actor)
+	if len(it.DocEvents) > 0 && (text == "" || it.DocEvents[0].CreatedAt.After(at)) {
+		e := it.DocEvents[0]
+		text, actor, at = docEventText(e), e.Actor, e.CreatedAt
 	}
-	return ""
+	if len(it.Comments) > 0 && (text == "" || it.Comments[0].CreatedAt.After(at)) {
+		c := it.Comments[0]
+		text, actor = commentText(c), c.Actor
+	}
+	return text, actor
 }
 
 // thisWeek is the count of the current throughput week.

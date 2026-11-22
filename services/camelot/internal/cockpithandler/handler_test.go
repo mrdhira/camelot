@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mrdhira/camelot/services/camelot/internal/cockpithandler"
+	"github.com/mrdhira/camelot/services/camelot/internal/commentmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/insightservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/searchservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
@@ -48,7 +49,7 @@ func newSite(t *testing.T) *site {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := cockpithandler.NewServer("127.0.0.1:7700", []string{"127.0.0.1:7700", "camelot.localhost"}, logger)
 	cockpithandler.New(cockpithandler.Config{DocRoots: []string{taskservicetest.DocRoot}}, logger, h.Tasks, h.Docs,
-		insightservice.New(h.Tasks, h.Docs), h.Feed, searchservice.New(h.Tasks, h.Docs)).Routes(srv)
+		insightservice.New(h.Tasks, h.Docs), h.Feed, searchservice.New(h.Tasks, h.Docs), h.Comments).Routes(srv)
 	return &site{h: h, srv: srv}
 }
 
@@ -212,6 +213,76 @@ func TestWrites(t *testing.T) {
 					t.Errorf("status = %s, want plan", got)
 				}
 			}},
+		},
+		{
+			name: "a comment on a card, recorded as dhira, back to it on the card",
+			path: "/tasks/DITA-001/comments",
+			form: func(*site) url.Values { return url.Values{"body": {"Split the plan."}} },
+			expected: expected{status: http.StatusSeeOther, location: "/tasks/DITA-001#camelot-comment-1", check: func(t *testing.T, s *site) {
+				got, err := s.h.Comments.Thread(context.Background(), &commentmodel.ListRequest{Kind: "card", TargetID: "DITA-001"})
+				if err != nil || len(got.Comments) != 1 || got.Comments[0].Actor != "dhira" || !got.AwaitsReply {
+					t.Errorf("thread = %+v, %v", got, err)
+				}
+			}},
+		},
+		{
+			name:     "a comment from the board's side panel goes back to the board",
+			path:     "/tasks/DITA-001/comments",
+			form:     func(*site) url.Values { return url.Values{"body": {"From the panel."}} },
+			header:   map[string]string{"Referer": "http://127.0.0.1:7700/board"},
+			expected: expected{status: http.StatusSeeOther, location: "/board"},
+		},
+		{
+			name:     "an empty comment is refused on the card's page",
+			path:     "/tasks/DITA-001/comments",
+			form:     func(*site) url.Values { return url.Values{"body": {"  "}} },
+			expected: expected{status: http.StatusUnprocessableEntity, contains: "the comment is empty"},
+		},
+		{
+			name:     "a comment on a missing card",
+			path:     "/tasks/DITA-404/comments",
+			form:     func(*site) url.Values { return url.Values{"body": {"x"}} },
+			expected: expected{status: http.StatusNotFound, contains: "card not found"},
+		},
+		{
+			name:     "a comment on a document section",
+			path:     "/docs/PRD001/comments",
+			form:     func(*site) url.Values { return url.Values{"body": {"Which clicks?"}, "section": {"goals"}} },
+			expected: expected{status: http.StatusSeeOther, location: "/docs/PRD001#camelot-comment-1"},
+		},
+		{
+			name:     "a section that is not a heading names the headings",
+			path:     "/docs/PRD001/comments",
+			form:     func(*site) url.Values { return url.Values{"body": {"x"}, "section": {"nope"}} },
+			expected: expected{status: http.StatusUnprocessableEntity, contains: "headings: goals"},
+		},
+		{
+			name: "resolve a comment",
+			path: "/comments/1/resolve",
+			form: func(s *site) url.Values {
+				if _, err := s.h.Comments.Add(context.Background(), &commentmodel.AddRequest{Kind: "card", TargetID: "DITA-001", Body: "x", Actor: "go-engineer"}); err != nil {
+					t.Fatal(err)
+				}
+				return url.Values{}
+			},
+			expected: expected{status: http.StatusSeeOther, location: "/tasks/DITA-001#camelot-comment-1", check: func(t *testing.T, s *site) {
+				got, _ := s.h.Comments.Thread(context.Background(), &commentmodel.ListRequest{Kind: "card", TargetID: "DITA-001"})
+				if got.Open != 0 || got.Comments[0].ResolvedBy != "dhira" {
+					t.Errorf("thread after resolve = %+v", got.Comments[0])
+				}
+			}},
+		},
+		{
+			name:     "resolve a missing comment",
+			path:     "/comments/99/resolve",
+			form:     func(*site) url.Values { return url.Values{} },
+			expected: expected{status: http.StatusNotFound, contains: "comment not found"},
+		},
+		{
+			name:     "resolve a comment ID that is not a number",
+			path:     "/comments/x/resolve",
+			form:     func(*site) url.Values { return url.Values{} },
+			expected: expected{status: http.StatusNotFound, contains: "No such comment"},
 		},
 		{
 			name: "a Referer from another host never becomes the redirect",

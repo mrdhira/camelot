@@ -13,6 +13,7 @@ import (
 	"github.com/axadrn/shadcn-templ/v2/components/table"
 	"github.com/axadrn/shadcn-templ/v2/components/textarea"
 
+	"github.com/mrdhira/camelot/services/camelot/internal/commentmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/pkg/markdown"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
 )
@@ -22,6 +23,7 @@ type TaskProps struct {
 	Detail      *taskmodel.GetResponse
 	Description markdown.HTML
 	Files       []string
+	Thread      *commentmodel.Thread
 	Error       string
 	Now         time.Time
 }
@@ -157,6 +159,7 @@ templ Task(p TaskProps) {
 						@nextStepForm(c, "")
 					}
 				}
+				@Comments(CommentsProps{Kind: commentmodel.KindCard, TargetID: c.ID, Thread: p.Thread, Now: p.Now})
 				@linkList("Depends on", depItems(p.Detail.Deps))
 				@linkList("Needed by", cardItems(p.Detail.Dependents))
 				if c.Type == taskmodel.TypeMilestone {
@@ -214,6 +217,7 @@ templ TaskPanel(p TaskProps) {
 				@templ.Raw(string(p.Description))
 			</div>
 		}
+		@Comments(CommentsProps{Kind: commentmodel.KindCard, TargetID: c.ID, Thread: p.Thread, Now: p.Now, Prefix: "panel-"})
 		@linkList("Depends on", depItems(p.Detail.Deps))
 		@docList(c.Docs)
 		<section class="grid gap-2" aria-label="Latest changes">

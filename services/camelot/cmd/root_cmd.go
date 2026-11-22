@@ -18,6 +18,8 @@ import (
 	"github.com/Wigata-Intech/w-tools/logger"
 
 	"github.com/mrdhira/camelot/services/camelot/config"
+	"github.com/mrdhira/camelot/services/camelot/internal/commentrepository"
+	"github.com/mrdhira/camelot/services/camelot/internal/commentservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/docrepository"
 	"github.com/mrdhira/camelot/services/camelot/internal/docservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/feedrepository"
@@ -45,6 +47,7 @@ func Root(out, logOut io.Writer) *cli.Command {
 			serveCommand(load, logOut),
 			taskCommand(load, out, logOut),
 			docCommand(load, out, logOut),
+			commentCommand(load, out, logOut),
 			insightsCommand(load, out, logOut),
 			checkCommand(load, out, logOut),
 			backupCommand(load, out, logOut),
@@ -65,6 +68,7 @@ type deps struct {
 	docs     docservice.Service
 	insights insightservice.Service
 	feed     feedservice.Service
+	comments commentservice.Service
 }
 
 // open loads the settings, opens and migrates the database, takes the
@@ -82,7 +86,7 @@ func open(ctx context.Context, load func() (*config.Config, error), logOut io.Wr
 	if err != nil {
 		return nil, err
 	}
-	for _, set := range []sqlitedb.MigrationSet{taskrepository.Migrations, docrepository.Migrations, feedrepository.Migrations} {
+	for _, set := range []sqlitedb.MigrationSet{taskrepository.Migrations, docrepository.Migrations, feedrepository.Migrations, commentrepository.Migrations} {
 		if err := sqlitedb.Migrate(ctx, log, db, set); err != nil {
 			_ = db.Close()
 			return nil, err
@@ -93,6 +97,7 @@ func open(ctx context.Context, load func() (*config.Config, error), logOut io.Wr
 	}
 	docSvc := docservice.New(docservice.Config{Zone: cfg.Zone}, docrepository.NewMarkdown(cfg.Vault, cfg.DocRoots), docrepository.NewSQLite(db))
 	taskSvc := taskservice.New(taskrepository.NewSQLite(db), taskrepository.NewFolders(cfg.Vault), docSvc)
+	commentSvc := commentservice.New(commentrepository.NewSQLite(db), taskSvc, docSvc)
 	return &deps{
 		config:   cfg,
 		logger:   log,
@@ -100,7 +105,8 @@ func open(ctx context.Context, load func() (*config.Config, error), logOut io.Wr
 		tasks:    taskSvc,
 		docs:     docSvc,
 		insights: insightservice.New(taskSvc, docSvc),
-		feed:     feedservice.New(feedrepository.NewSQLite(db), taskSvc, docSvc),
+		feed:     feedservice.New(feedrepository.NewSQLite(db), taskSvc, docSvc, commentSvc),
+		comments: commentSvc,
 	}, nil
 }
 

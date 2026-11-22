@@ -11,6 +11,7 @@ import (
 	"github.com/axadrn/shadcn-templ/v2/components/progress"
 	"github.com/axadrn/shadcn-templ/v2/components/table"
 
+	"github.com/mrdhira/camelot/services/camelot/internal/commentmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/docmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/insightmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/pkg/markdown"
@@ -20,6 +21,7 @@ import (
 // DocNode is a document in the chain tree with the documents serving it.
 type DocNode struct {
 	Progress insightmodel.DocProgress
+	Comments int
 	Children []DocNode
 }
 
@@ -109,6 +111,9 @@ templ docNode(n DocNode, depth int) {
 						· updated { d.Updated }
 					}
 					· { plural(n.Progress.Direct, "card", "cards") } linked directly
+					if n.Comments > 0 {
+						· <a href={ DocHref(d.ID) + "#camelot-comments" } class="font-medium text-foreground underline underline-offset-4">{ plural(n.Comments, "open comment", "open comments") }</a>
+					}
 				</p>
 				if len(n.Progress.Gaps) > 0 {
 					<ul class="flex flex-wrap gap-1">
@@ -180,6 +185,7 @@ type DocProps struct {
 	HTML     markdown.HTML
 	TOC      []markdown.Heading
 	Events   []*docmodel.Event
+	Thread   *commentmodel.Thread
 	Now      time.Time
 	Error    string
 }
@@ -214,9 +220,12 @@ templ Doc(p DocProps) {
 			}
 		}
 		<div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-			<article class="prose-camelot order-2 min-w-0 rounded-xl border p-4 lg:order-1 lg:p-6">
-				@templ.Raw(string(p.HTML))
-			</article>
+			<div class="order-2 grid min-w-0 content-start gap-6 lg:order-1">
+				<article class="prose-camelot min-w-0 rounded-xl border p-4 lg:p-6">
+					@templ.Raw(string(p.HTML))
+				</article>
+				@Comments(CommentsProps{Kind: commentmodel.KindDoc, TargetID: d.ID, Thread: p.Thread, Sections: p.TOC, Now: p.Now})
+			</div>
 			<aside class="order-1 grid min-w-0 content-start gap-6 lg:sticky lg:top-20 lg:order-2 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto" aria-label="About this document">
 				if len(p.TOC) > 0 {
 					<nav aria-label="On this page" class="grid gap-1.5 text-sm">
@@ -227,6 +236,14 @@ templ Doc(p DocProps) {
 									<a href={ templ.SafeURL("#" + h.ID) } class="text-muted-foreground hover:text-foreground hover:underline">{ h.Text }</a>
 								</li>
 							}
+							<li>
+								<a href="#camelot-comments" class="text-muted-foreground hover:text-foreground hover:underline">
+									Comments
+									if p.Thread.Open > 0 {
+										({ itoa(p.Thread.Open) } open)
+									}
+								</a>
+							</li>
 						</ol>
 					</nav>
 				}

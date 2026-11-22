@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mrdhira/camelot/services/camelot/internal/commentmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/feedmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskservice/taskservicetest"
@@ -72,7 +73,7 @@ func TestFeed(t *testing.T) {
 	if next == stamp || next.String() == stamp.String() {
 		t.Errorf("stamp %q did not change after card and document changes", next)
 	}
-	if err := h.Feed.MarkSeen(ctx, &feedmodel.SeenRequest{Stamp: "c0-d0"}); err != nil {
+	if err := h.Feed.MarkSeen(ctx, &feedmodel.SeenRequest{Stamp: "c0-d0-m0"}); err != nil {
 		t.Fatal(err)
 	}
 	if again, _ := h.Feed.Feed(ctx); len(again.Items) != 2 {
@@ -92,3 +93,39 @@ func TestFeed(t *testing.T) {
 func ptr[T any](v T) *T { return &v }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+func TestFeedComments(t *testing.T) {
+	h := taskservicetest.New(t)
+	h.Seed(t)
+	ctx := context.Background()
+	before, err := h.Feed.Feed(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Feed.MarkSeen(ctx, &feedmodel.SeenRequest{Stamp: before.Stamp.String()}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := h.Comments.Add(ctx, &commentmodel.AddRequest{Kind: "doc", TargetID: "PRD001", Section: "goals", Body: "Which clicks?", Actor: "dhira"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Comments.Resolve(ctx, &commentmodel.ResolveRequest{ID: c.ID, Actor: "dita"}); err != nil {
+		t.Fatal(err)
+	}
+	feed, err := h.Feed.Feed(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if feed.Stamp.CommentID != c.ID+1 || feed.Stamp == before.Stamp {
+		t.Errorf("stamp %s after a comment and its resolution (before %s)", feed.Stamp, before.Stamp)
+	}
+	if len(feed.Items) != 1 || feed.Items[0].ID != "PRD001" || len(feed.Items[0].Comments) != 2 || feed.Items[0].Comments[0].ResolvesID != c.ID {
+		t.Fatalf("feed after a comment and its resolution: %+v", feed.Items)
+	}
+	if err := h.Feed.MarkSeen(ctx, &feedmodel.SeenRequest{Stamp: feed.Stamp.String()}); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := h.Feed.Feed(ctx); len(after.Items) != 0 {
+		t.Errorf("seen comments still listed: %+v", after.Items)
+	}
+}

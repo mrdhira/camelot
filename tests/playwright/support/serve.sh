@@ -14,4 +14,9 @@ bin="$repo/bin/camelot"
 "$bin" task create --id FIX-013 --title "Card to move by keyboard" --status backlog >/dev/null
 "$bin" task create --id FIX-015 --title "Card for a written answer" --status review --waiting "Ship it?" >/dev/null
 "$bin" task create --id FIX-016 --title "Card for the panel" --status todo >/dev/null
+"$bin" task create --id FIX-017 --title "Card for comments" --status wip --assignee go-engineer >/dev/null
+CAMELOT_ACTOR=dhira "$bin" comment add --kind card --id FIX-011 --body "Fixture feedback, resolved" >/dev/null
+"$bin" comment resolve --comment 1 --note "handled in the fixture" >/dev/null
+CAMELOT_ACTOR=dhira "$bin" comment add --kind card --id FIX-011 --body "Fixture feedback, open" >/dev/null
+CAMELOT_ACTOR=dhira "$bin" comment add --kind doc --id PRD900 --section goals --body "Fixture question on the goals" >/dev/null
 exec "$bin" serve

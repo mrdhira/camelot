@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mrdhira/camelot/services/camelot/internal/commentmodel"
+	"github.com/mrdhira/camelot/services/camelot/internal/commentservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/docmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/docservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/feedmodel"
@@ -23,19 +25,20 @@ type Service interface {
 	Feed(ctx context.Context) (*feedmodel.Feed, error)
 	// MarkSeen moves the seen marker to the request's stamp (never back).
 	MarkSeen(ctx context.Context, request *feedmodel.SeenRequest) error
-	// Stamp syncs the documents and returns the newest card and document event IDs.
+	// Stamp syncs the documents and returns the newest card event, document event and comment IDs.
 	Stamp(ctx context.Context) (feedmodel.Stamp, error)
 }
 
 type service struct {
-	feedRepo feedrepository.Repository
-	taskSvc  taskservice.Service
-	docSvc   docservice.Service
+	feedRepo   feedrepository.Repository
+	taskSvc    taskservice.Service
+	docSvc     docservice.Service
+	commentSvc commentservice.Service
 }
 
 // New returns the Service.
-func New(feedRepo feedrepository.Repository, taskSvc taskservice.Service, docSvc docservice.Service) Service {
-	return &service{feedRepo: feedRepo, taskSvc: taskSvc, docSvc: docSvc}
+func New(feedRepo feedrepository.Repository, taskSvc taskservice.Service, docSvc docservice.Service, commentSvc commentservice.Service) Service {
+	return &service{feedRepo: feedRepo, taskSvc: taskSvc, docSvc: docSvc, commentSvc: commentSvc}
 }
 
 // Feed groups the card and document events since the marker per item.
@@ -55,12 +58,17 @@ func (s *service) Feed(ctx context.Context) (*feedmodel.Feed, error) {
 	feed := &feedmodel.Feed{AsOf: now, Stamp: stamp}
 	cardFilter := &taskmodel.EventFilter{}
 	docFilter := &docmodel.EventFilter{}
+	commentFilter := &commentmodel.Filter{}
 	if seen == nil {
 		feed.Since, feed.FirstLook = now.Add(-feedmodel.FirstLook), true
-		cardFilter.Since, docFilter.Since = feed.Since, feed.Since
+		cardFilter.Since, docFilter.Since, commentFilter.SinceAt = feed.Since, feed.Since, feed.Since
 	} else {
 		feed.Since = seen.At
-		cardFilter.AfterID, docFilter.AfterID = seen.Stamp.CardEventID, seen.Stamp.DocEventID
+		cardFilter.AfterID, docFilter.AfterID, commentFilter.AfterID = seen.Stamp.CardEventID, seen.Stamp.DocEventID, seen.Stamp.CommentID
+	}
+	comments, err := s.commentSvc.Changes(ctx, commentFilter)
+	if err != nil {
+		return nil, err
 	}
 	cardEvents, err := s.taskSvc.Events(ctx, cardFilter)
 	if err != nil {
@@ -103,6 +111,18 @@ func (s *service) Feed(ctx context.Context) (*feedmodel.Feed, error) {
 		it := item(feedmodel.KindDoc, e.DocID)
 		it.DocEvents = append(it.DocEvents, e)
 		it.LatestAt = maxTime(it.LatestAt, e.CreatedAt)
+	}
+	for _, c := range comments {
+		if c.ID > stamp.CommentID {
+			continue
+		}
+		kind := feedmodel.KindCard
+		if c.Kind == commentmodel.KindDoc {
+			kind = feedmodel.KindDoc
+		}
+		it := item(kind, c.TargetID)
+		it.Comments = append([]*commentmodel.Comment{c}, it.Comments...)
+		it.LatestAt = maxTime(it.LatestAt, c.CreatedAt)
 	}
 	for _, c := range cards {
 		if it, ok := items[feedmodel.KindCard+"/"+c.ID]; ok {
@@ -153,7 +173,11 @@ func (s *service) stamp(ctx context.Context) (feedmodel.Stamp, error) {
 	if err != nil {
 		return feedmodel.Stamp{}, err
 	}
-	return feedmodel.Stamp{CardEventID: cardID, DocEventID: docID}, nil
+	commentID, err := s.commentSvc.MaxID(ctx)
+	if err != nil {
+		return feedmodel.Stamp{}, err
+	}
+	return feedmodel.Stamp{CardEventID: cardID, DocEventID: docID, CommentID: commentID}, nil
 }
 
 func maxTime(a, b time.Time) time.Time {

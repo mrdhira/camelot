@@ -6,13 +6,15 @@ import (
 	"github.com/axadrn/shadcn-templ/v2/components/input"
 	"github.com/axadrn/shadcn-templ/v2/components/nativeselect"
 
+	"github.com/mrdhira/camelot/services/camelot/internal/commentmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
 )
 
 // BoardCard is a card on the board with what its tile flags.
 type BoardCard struct {
-	Card    *taskmodel.Card
-	Blocked bool
+	Card     *taskmodel.Card
+	Blocked  bool
+	Comments commentmodel.Summary
 }
 
 // BoardColumn is one status column; Hidden counts Done cards left out.
@@ -192,10 +194,16 @@ templ cardTile(bc BoardCard) {
 				<span>{ "@" + c.Assignee }</span>
 			}
 		</p>
-		if c.Waiting != "" || bc.Blocked {
+		if c.Waiting != "" || bc.Blocked || bc.Comments.Open > 0 {
 			<p class="flex flex-wrap gap-x-3 text-xs font-medium">
 				if c.Waiting != "" {
 					<span class="text-status-critical" title={ c.Waiting }>● Waiting on you</span>
+				}
+				if bc.Comments.AwaitsReply {
+					<span><span aria-hidden="true" class="text-series-1">●</span> Feedback for the agent</span>
+				}
+				if bc.Comments.Open > 0 {
+					<span class="text-muted-foreground">{ plural(bc.Comments.Open, "open comment", "open comments") }</span>
 				}
 				if bc.Blocked {
 					<span class="text-muted-foreground">⛔ Blocked</span>

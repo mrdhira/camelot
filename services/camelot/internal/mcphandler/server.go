@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/mrdhira/camelot/services/camelot/internal/commentservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/docservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/insightservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskservice"
@@ -69,9 +70,9 @@ type Server struct {
 }
 
 // New returns the server over the services.
-func New(config Config, logger *slog.Logger, taskSvc taskservice.Service, docSvc docservice.Service, insightSvc insightservice.Service) *Server {
+func New(config Config, logger *slog.Logger, taskSvc taskservice.Service, docSvc docservice.Service, insightSvc insightservice.Service, commentSvc commentservice.Service) *Server {
 	s := &Server{config: config, logger: logger}
-	s.tools = newTools(config, taskSvc, docSvc, insightSvc)
+	s.tools = newTools(config, taskSvc, docSvc, insightSvc, commentSvc)
 	return s
 }
 

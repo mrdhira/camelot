@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/mrdhira/camelot/services/camelot/internal/commentmodel"
+	"github.com/mrdhira/camelot/services/camelot/internal/commentservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/docmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/docservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/insightservice"
@@ -86,7 +88,7 @@ func decode(args json.RawMessage, v any) error {
 }
 
 // newTools builds the tool list, in a fixed order.
-func newTools(config Config, taskSvc taskservice.Service, docSvc docservice.Service, insightSvc insightservice.Service) []tool {
+func newTools(config Config, taskSvc taskservice.Service, docSvc docservice.Service, insightSvc insightservice.Service, commentSvc commentservice.Service) []tool {
 	actor := func(a string) string {
 		if a == "" {
 			return config.Actor
@@ -182,7 +184,7 @@ func newTools(config Config, taskSvc taskservice.Service, docSvc docservice.Serv
 		{
 			name:        "get_task",
 			title:       "Show a card",
-			description: "A card with its description, dependencies (with status), dependents, child cards and full history.",
+			description: "A card with its description, dependencies (with status), dependents, child cards, full history and open comments. Read the open comments before working on the card: awaits_reply means Dhira wrote last and expects your reply (add_comment) or a fix (then resolve_comment).",
 			schema:      object(map[string]any{"id": str("the card ID")}, "id"),
 			annotations: readOnly,
 			run: func(ctx context.Context, args json.RawMessage) (any, error) {
@@ -192,7 +194,18 @@ func newTools(config Config, taskSvc taskservice.Service, docSvc docservice.Serv
 				if err := decode(args, &a); err != nil {
 					return nil, err
 				}
-				return taskSvc.Get(ctx, &taskmodel.GetRequest{ID: a.ID})
+				detail, err := taskSvc.Get(ctx, &taskmodel.GetRequest{ID: a.ID})
+				if err != nil {
+					return nil, err
+				}
+				thread, err := commentSvc.Thread(ctx, &commentmodel.ListRequest{Kind: commentmodel.KindCard, TargetID: detail.Card.ID, OpenOnly: true})
+				if err != nil {
+					return nil, err
+				}
+				return struct {
+					*taskmodel.GetResponse
+					Comments *commentmodel.Thread `json:"comments"`
+				}{detail, thread}, nil
 			},
 		},
 		{
@@ -363,6 +376,76 @@ func newTools(config Config, taskSvc taskservice.Service, docSvc docservice.Serv
 					return nil, err
 				}
 				return docSvc.SetStatus(ctx, &docmodel.SetStatusRequest{ID: a.ID, Status: a.Status, Actor: actor(a.Actor)})
+			},
+		},
+		{
+			name:        "list_comments",
+			title:       "Read comments",
+			description: "The comments on a card or document, oldest first, with who resolved each. A document comment may name a section (a heading anchor).",
+			schema: object(map[string]any{
+				"kind":      str("card or doc"),
+				"id":        str("the card or document ID"),
+				"open_only": map[string]any{"type": "boolean", "description": "only comments nobody resolved"},
+			}, "kind", "id"),
+			annotations: readOnly,
+			run: func(ctx context.Context, args json.RawMessage) (any, error) {
+				var a struct {
+					Kind     string `json:"kind"`
+					ID       string `json:"id"`
+					OpenOnly bool   `json:"open_only"`
+				}
+				if err := decode(args, &a); err != nil {
+					return nil, err
+				}
+				return commentSvc.Thread(ctx, &commentmodel.ListRequest{Kind: a.Kind, TargetID: a.ID, OpenOnly: a.OpenOnly})
+			},
+		},
+		{
+			name:        "add_comment",
+			title:       "Comment",
+			description: "Comment on a card or document: answer Dhira's feedback, say what you changed, or ask. Decisions that are Dhira's go in waiting/waiting_options on the card instead.",
+			schema: object(map[string]any{
+				"kind":    str("card or doc"),
+				"id":      str("the card or document ID"),
+				"section": str("documents only: a heading anchor of the document (list_comments shows the ones in use)"),
+				"body":    str("plain text, at most 4000 characters"),
+				"actor":   str("your agent name"),
+			}, "kind", "id", "body"),
+			annotations: writes,
+			run: func(ctx context.Context, args json.RawMessage) (any, error) {
+				var a struct {
+					Kind    string `json:"kind"`
+					ID      string `json:"id"`
+					Section string `json:"section"`
+					Body    string `json:"body"`
+					Actor   string `json:"actor"`
+				}
+				if err := decode(args, &a); err != nil {
+					return nil, err
+				}
+				return commentSvc.Add(ctx, &commentmodel.AddRequest{Kind: a.Kind, TargetID: a.ID, Section: a.Section, Body: a.Body, Actor: actor(a.Actor)})
+			},
+		},
+		{
+			name:        "resolve_comment",
+			title:       "Resolve a comment",
+			description: "Close a comment once it is handled, with a note saying how. Resolving it again changes nothing.",
+			schema: object(map[string]any{
+				"comment": map[string]any{"type": "integer", "description": "the comment's id"},
+				"note":    str("how it was handled"),
+				"actor":   str("your agent name"),
+			}, "comment"),
+			annotations: writes,
+			run: func(ctx context.Context, args json.RawMessage) (any, error) {
+				var a struct {
+					Comment int64  `json:"comment"`
+					Note    string `json:"note"`
+					Actor   string `json:"actor"`
+				}
+				if err := decode(args, &a); err != nil {
+					return nil, err
+				}
+				return commentSvc.Resolve(ctx, &commentmodel.ResolveRequest{ID: a.Comment, Note: a.Note, Actor: actor(a.Actor)})
 			},
 		},
 		{

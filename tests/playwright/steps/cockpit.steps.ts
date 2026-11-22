@@ -24,12 +24,12 @@ Given("Dhira's system is set to dark", async ({ page }) => {
 // background is the page's background colour as the browser computed it.
 const background = (page: import("@playwright/test").Page) => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 
-// light is the light theme's background (oklch(1 0 0), white).
-const light = /^(rgb\(255, 255, 255\)|oklch\(1 0 0\))$/;
-
 Then("the page is dark", async ({ page }) => {
   await expect.poll(() => background(page)).toBe("rgb(8, 11, 16)");
 });
+
+// light is the light theme's background (oklch(1 0 0), white).
+const light = /^(rgb\(255, 255, 255\)|oklch\(1 0 0\))$/;
 
 Then("the page is light", async ({ page }) => {
   await expect.poll(() => background(page)).toMatch(light);
@@ -51,6 +51,47 @@ Then("after a reload the page is still light", async ({ page }) => {
   await page.reload();
   await expect.poll(() => background(page)).toMatch(light);
   await expect(themeSwitch(page)).toContainText("Light");
+});
+
+When("he comments {string}", async ({ page }, text: string) => {
+  await page.getByLabel("Add a comment").fill(text);
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
+  await expect(page.getByRole("listitem").filter({ hasText: text })).toBeVisible();
+});
+
+When("he comments {string} about {string}", async ({ page }, text: string, section: string) => {
+  await page.getByLabel("Add a comment").fill(text);
+  await page.getByLabel("About", { exact: true }).selectOption({ label: section });
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
+});
+
+Then("he sees the comment {string} about {string}", async ({ page }, text: string, section: string) => {
+  const item = page.getByRole("listitem").filter({ hasText: text });
+  await expect(item.getByRole("link", { name: section })).toBeVisible();
+});
+
+When("the agent {string} comments {string} on {string}", async ({}, actor: string, text: string, id: string) => {
+  const root = path.resolve(__dirname, "..");
+  execFileSync(path.resolve(root, "../../bin/camelot"), ["--log-level", "warn", "comment", "add", "--kind", "card", "--id", id, "--body", text], {
+    env: { ...process.env, CAMELOT_VAULT: path.join(root, ".vault"), CAMELOT_ACTOR: actor },
+  });
+});
+
+Then("{string} appears without a reload", async ({ page }, text: string) => {
+  await page.evaluate(() => ((window as any).__noReload = true));
+  await expect(page.getByText(text, { exact: true })).toBeVisible({ timeout: 20_000 });
+  expect(await page.evaluate(() => (window as any).__noReload)).toBe(true);
+});
+
+Then("on the board, card {string} shows {string} and {string}", async ({ page }, id: string, a: string, b: string) => {
+  await page.goto("/board");
+  const tile = page.locator(`[data-card="${id}"]`);
+  await expect(tile).toContainText(a);
+  await expect(tile).toContainText(b);
+});
+
+When("he resolves the comment {string}", async ({ page }, text: string) => {
+  await page.getByRole("listitem").filter({ hasText: text }).getByRole("button", { name: /^Resolve/ }).click();
 });
 
 Then("he sees the heading {string}", async ({ page }, name: string) => {

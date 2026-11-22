@@ -12,18 +12,19 @@ Instructions for AI coding agents (and humans) working in this repository. Decis
 go.mod                              # the only module (ADR-002); tool templ
 services/camelot/                   # one binary
   main.go
-  cmd/                              # composition root: serve | task (list, show, create, update, move, delete) | doc (list, show, status) | insights | check | backup | import-board | export-board | mcp | probe; owner.go = the database's single-kernel guard (ADR-003)
+  cmd/                              # composition root: serve | task (list, show, create, update, move, delete) | doc (list, show, status) | comment (list, add, resolve) | insights | check | backup | import-board | export-board | mcp | probe; owner.go = the database's single-kernel guard (ADR-003)
   config/                           # flags, each also CAMELOT_<NAME>: vault, db, doc-roots, listen (loopback only unless behind-proxy), hosts (the Host allow-list), behind-proxy, actor, time-zone, log-level
   internal/
     taskmodel/ taskrepository/{repository.go, sqlite/ (+ migrations/)} taskservice/ (+ taskservicetest/)   # cards, links, history events (SQLite, ADR-001)
     docmodel/  docrepository/{repository.go, markdown/, sqlite/ (+ migrations/)}  docservice/              # documents: Markdown files with frontmatter, read through os.Root; their history (snapshots + events, compare-and-set Sync every 30 s in serve, first sync a silent baseline)
+    commentmodel/ commentrepository/{repository.go, sqlite/ (+ migrations/)} commentservice/   # one comment thread per card and per document (a document comment may name a heading); append-only, a resolution is a row pointing at its comment; "awaits reply" = the newest comment is Dhira's and open
     feedmodel/ feedrepository/ feedservice/  # "what's new": card and document events after the seen marker (event IDs, never clocks); the change stamp live.js polls
     searchmodel/ searchservice/     # cards and documents for the ⌘K palette; Unicode-safe snippets
     insightmodel/ insightservice/   # flow measures, waiting, blocked, stale, document progress and gaps, data-quality check
-    cockpithandler/                 # the web UI: server.go (hardening), handler.go (routes and pages)
+    cockpithandler/                 # the web UI: server.go (hardening), handler.go (routes and pages), search.go, comments.go
     mcphandler/                     # MCP over stdio (2025-11-25 initialize and 2026-07-28 server/discover)
     pkg/                            # no app knowledge: frontmatter, markdown (goldmark, safe mode), sqlitedb, taskboard (legacy TASK.md parser)
-  src/app/                          # templ pages (one package: layout with the ⌘K palette, theme toggle and side-panel sheet, cockpit, board, task + TaskPanel, insights, docs, parts) + helpers.go, scripts.go (shadcn component scripts in bundle order), shell.go (header facts)
+  src/app/                          # templ pages (one package: layout with the ⌘K palette, theme toggle and side-panel sheet, cockpit, board, task + TaskPanel, insights, docs, comments, parts) + helpers.go, scripts.go (shadcn component scripts in bundle order), shell.go (header facts)
   src/assets/                       # assets.go (embedded, hashed names; shadcn scripts from the module), css/{tailwind.css, app.css (make css, committed)}, fonts/, vendor/, js/{theme,live,panel,palette,board}.js (theme.js runs in <head>: the light/dark switch; the system setting until switched)
   Dockerfile                        # scratch runtime, non-root; build context = repo root (.dockerignore allow-list)
 deployment/local/                   # docker-compose.yaml (project camelot-local: camelot + Caddy on 127.0.0.1:80) and Caddyfile (http://camelot.localhost only)

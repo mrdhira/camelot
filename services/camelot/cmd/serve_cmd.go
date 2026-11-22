@@ -31,7 +31,7 @@ func serveCommand(load func() (*config.Config, error), logOut io.Writer) *cli.Co
 			// utils.CN initializes tailwind-merge-go unsynchronized on first use.
 			utils.CN("")
 			srv := cockpithandler.NewServer(a.config.Listen, a.config.Hosts, a.logger)
-			cockpithandler.New(cockpithandler.Config{DocRoots: a.config.DocRoots}, a.logger, a.tasks, a.docs, a.insights, a.feed, searchservice.New(a.tasks, a.docs)).Routes(srv)
+			cockpithandler.New(cockpithandler.Config{DocRoots: a.config.DocRoots}, a.logger, a.tasks, a.docs, a.insights, a.feed, searchservice.New(a.tasks, a.docs), a.comments).Routes(srv)
 			go syncDocs(ctx, a)
 			a.logger.InfoContext(ctx, "camelot serving", "url", "http://"+a.config.Listen, "vault", a.config.Vault)
 			return srv.Run(ctx)
