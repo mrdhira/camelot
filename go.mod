@@ -9,7 +9,7 @@ require (
 	github.com/Wigata-Intech/w-tools/httpx v0.2.6
 	github.com/Wigata-Intech/w-tools/logger v0.2.0
 	github.com/a-h/templ v0.3.1118
-	github.com/axadrn/shadcn-templ/v2 v2.0.0
+	github.com/axadrn/shadcn-templ/v2 v2.0.1
 	github.com/yuin/goldmark/v2 v2.1.16
 	modernc.org/sqlite v1.62.0
 )
