@@ -125,7 +125,7 @@ Feature: Dhira runs his agents' work from the cockpit
     When he flips the theme switch
     Then the page is light
     And after a reload the page is still light
-    When he flips the theme switch
+    When he flips the theme switch with the keyboard
     Then the page is dark
 
   Scenario Outline: Every page is accessible and fits a phone

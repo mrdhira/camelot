@@ -9,6 +9,7 @@ type Component string
 const (
 	ComponentDialog   Component = "dialog"
 	ComponentProgress Component = "progress"
+	ComponentSwitch   Component = "switch"
 	ComponentTooltip  Component = "tooltip"
 )
 
@@ -31,6 +32,7 @@ var bundleOrder = []string{
 	"floating_ui_core.js",
 	"floating_ui_dom.js",
 	"progress.js",
+	"switch.js",
 	"tooltip.js",
 }
 
@@ -41,6 +43,8 @@ func scriptsOf(c Component) []string {
 		return []string{"lifecycle.js", "portal.js", "use_dismiss.js", "scroll_lock.js", "use_transition_status.js", "tabbable.js", "mark_others.js", "floating_focus_manager.js", "use_click.js", "dialog.js"}
 	case ComponentProgress:
 		return []string{"lifecycle.js", "progress.js"}
+	case ComponentSwitch:
+		return []string{"lifecycle.js", "switch.js"}
 	case ComponentTooltip:
 		return []string{"lifecycle.js", "portal.js", "use_dismiss.js", "use_transition_status.js", "use_anchor_positioning.js", "tabbable.js", "use_hover.js", "use_focus.js", "floating_ui_core.js", "floating_ui_dom.js", "tooltip.js"}
 	}

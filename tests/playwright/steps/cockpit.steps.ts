@@ -36,21 +36,25 @@ Then("the page is light", async ({ page }) => {
 });
 
 // themeSwitch is the header's light/dark switch.
-const themeSwitch = (page: import("@playwright/test").Page) => page.getByRole("button", { name: /^Dark theme:/ });
+const themeSwitch = (page: import("@playwright/test").Page) => page.getByRole("switch", { name: "Dark theme" });
 
 Then("the theme switch shows {string}", async ({ page }, name: string) => {
-  await expect(themeSwitch(page)).toContainText(name);
-  await expect(themeSwitch(page)).toHaveAttribute("aria-pressed", String(name === "Dark"));
+  await expect(themeSwitch(page)).toHaveAttribute("aria-checked", String(name === "Dark"));
 });
 
 When("he flips the theme switch", async ({ page }) => {
   await themeSwitch(page).click();
 });
 
+When("he flips the theme switch with the keyboard", async ({ page }) => {
+  await themeSwitch(page).focus();
+  await page.keyboard.press("Space");
+});
+
 Then("after a reload the page is still light", async ({ page }) => {
   await page.reload();
   await expect.poll(() => background(page)).toMatch(light);
-  await expect(themeSwitch(page)).toContainText("Light");
+  await expect(themeSwitch(page)).toHaveAttribute("aria-checked", "false");
 });
 
 When("he comments {string}", async ({ page }, text: string) => {

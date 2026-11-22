@@ -48,6 +48,7 @@ var componentScripts = map[string]string{
 	"js/shadcn/floating_ui_core.js":       "floatingui/floating_ui_core.js",
 	"js/shadcn/floating_ui_dom.js":        "floatingui/floating_ui_dom.js",
 	"js/shadcn/progress.js":               "progress/progress.js",
+	"js/shadcn/switch.js":                 "switch/switch.js",
 	"js/shadcn/tooltip.js":                "tooltip/tooltip.js",
 }
 

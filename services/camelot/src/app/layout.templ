@@ -3,8 +3,10 @@ package app
 import (
 	"github.com/axadrn/shadcn-templ/v2/components/button"
 	"github.com/axadrn/shadcn-templ/v2/components/dialog"
+	"github.com/axadrn/shadcn-templ/v2/components/icon"
 	"github.com/axadrn/shadcn-templ/v2/components/input"
 	"github.com/axadrn/shadcn-templ/v2/components/sheet"
+	switchcomp "github.com/axadrn/shadcn-templ/v2/components/switch"
 
 	"github.com/mrdhira/camelot/services/camelot/src/assets"
 )
@@ -35,8 +37,8 @@ var navItems = []navItem{
 // PaletteID is the ⌘K palette dialog.
 const PaletteID = "palette"
 
-// layoutComponents are the components of every page: the dialog (palette, panel).
-var layoutComponents = []Component{ComponentDialog}
+// layoutComponents are the components of every page: the dialog (palette, panel) and the theme switch.
+var layoutComponents = []Component{ComponentDialog, ComponentSwitch}
 
 // Layout is every page's document: the header (navigation with the feed's
 // unread count, the live indicator, ⌘K, "New card"), then children in
@@ -74,11 +76,11 @@ templ Layout(title, active string, scripts ...string) {
 						Search
 						<kbd aria-hidden="true" class="rounded border bg-background px-1 font-mono text-[10px] text-foreground">⌘K</kbd>
 					</button>
-					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "max-sm:hidden", Attributes: templ.Attributes{"hidden": true, "data-theme-toggle": true, "title": "Switch between light and dark (until switched, the system setting applies)"}}) {
-						<span aria-hidden="true">◐</span>
-						<span class="sr-only">Dark theme: </span>
-						<span data-theme-name>Light</span>
-					}
+					<label for="theme-switch" class="flex cursor-pointer items-center gap-1.5 text-muted-foreground max-sm:hidden" data-theme-switch hidden title="Light or dark; until switched, the system setting applies">
+						@icon.Sun(icon.Props{Size: 16, Attributes: templ.Attributes{"aria-hidden": "true"}})
+						@switchcomp.Switch(switchcomp.Props{ID: "theme-switch", Size: switchcomp.SizeSm, Attributes: templ.Attributes{"aria-label": "Dark theme"}})
+						@icon.Moon(icon.Props{Size: 16, Attributes: templ.Attributes{"aria-hidden": "true"}})
+					</label>
 					@button.Button(button.Props{Href: "/tasks/new", Size: button.SizeSm}) {
 						<span aria-hidden="true" class="sm:hidden">+</span>
 						<span class="sr-only sm:not-sr-only">New card</span>

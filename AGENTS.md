@@ -25,7 +25,7 @@ services/camelot/                   # one binary
     mcphandler/                     # MCP over stdio (2025-11-25 initialize and 2026-07-28 server/discover)
     pkg/                            # no app knowledge: frontmatter, markdown (goldmark, safe mode), sqlitedb, taskboard (legacy TASK.md parser)
   src/app/                          # templ pages (one package: layout with the ⌘K palette, theme toggle and side-panel sheet, cockpit, board, task + TaskPanel, insights, docs, comments, parts) + helpers.go, scripts.go (shadcn component scripts in bundle order), shell.go (header facts)
-  src/assets/                       # assets.go (embedded, hashed names; shadcn scripts from the module), css/{tailwind.css, app.css (make css, committed)}, fonts/, vendor/, js/{theme,live,panel,palette,board}.js (theme.js runs in <head>: the light/dark switch; the system setting until switched)
+  src/assets/                       # assets.go (embedded, hashed names; shadcn scripts from the module), css/{tailwind.css, app.css (make css, committed)}, fonts/, vendor/, js/{theme,live,panel,palette,board}.js (theme.js runs in <head>: drives the header Switch, sun/moon; the system setting until flipped)
   Dockerfile                        # scratch runtime, non-root; build context = repo root (.dockerignore allow-list)
 deployment/local/                   # docker-compose.yaml (project camelot-local: camelot + Caddy on 127.0.0.1:80) and Caddyfile (http://camelot.localhost only)
 scripts/camelot                     # agents' entry point: docker exec while the stack serves, else the native binary

@@ -5,7 +5,7 @@
 
 @source "../../app";
 @source "../js";
-@source "../../.shadcn-templ/module/components/{alert,badge,button,card,dialog,empty,field,input,nativeselect,progress,sheet,table,textarea,tooltip}/*.templ";
+@source "../../.shadcn-templ/module/components/{alert,badge,button,card,dialog,empty,field,input,nativeselect,progress,sheet,switch,table,textarea,tooltip}/*.templ";
 
 /* Dark: the .dark class (chosen in the header), or the system's dark
    setting unless .light was chosen; js/theme.js sets the class before paint. */
