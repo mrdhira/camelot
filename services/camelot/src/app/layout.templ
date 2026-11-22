@@ -69,7 +69,7 @@ templ Layout(title, active string, scripts ...string) {
 						}
 					</nav>
 					<p id="live" class="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex" data-as-of={ ISO(shell.AsOf) }>
-						<span aria-hidden="true" class="size-1.5 rounded-full bg-stage-done text-stage-done" data-light></span>
+						<span aria-hidden="true" class="size-1.5 rounded-full bg-tone-done text-tone-done" data-light></span>
 						<span data-live-text>live</span>
 					</p>
 					<button type="button" class="hidden h-8 items-center gap-2 rounded-md border px-2.5 text-xs text-muted-foreground hover:bg-muted sm:flex" { dialog.TriggerFor(PaletteID)... } aria-keyshortcuts="Meta+K Control+K">
@@ -90,6 +90,11 @@ templ Layout(title, active string, scripts ...string) {
 			<main id="main" class="mx-auto flex max-w-[1600px] flex-col gap-6 px-3 py-6 sm:px-6">
 				{ children... }
 			</main>
+			<footer class="mx-auto max-w-[1600px] px-3 pb-6 text-xs text-muted-foreground sm:px-6">
+				<a href="/design" class="underline underline-offset-4 hover:text-foreground">Design book</a>
+				<span aria-hidden="true">·</span>
+				<a href="/check" class="underline underline-offset-4 hover:text-foreground">Data quality</a>
+			</footer>
 			@palette()
 			@panelSheet()
 			for _, s := range Scripts(layoutComponents, "js/live.js", "js/palette.js", "js/panel.js") {
@@ -125,7 +130,7 @@ templ navLabel(item navItem, unread int) {
 		{ item.Label }
 	}
 	if item.Key == NavCockpit && unread > 0 {
-		<span data-unread class="ml-1 rounded-full bg-primary px-1.5 text-[11px] font-semibold tabular-nums text-primary-foreground">{ itoa(unread) }<span class="sr-only"> updates</span></span>
+		<span data-unread class="ml-1 rounded-full bg-tone-new px-1.5 text-[11px] font-semibold tabular-nums text-tone-new-on">{ itoa(unread) }<span class="sr-only"> updates</span></span>
 	}
 }
 

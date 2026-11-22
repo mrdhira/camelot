@@ -143,51 +143,71 @@
   }
 }
 
-/* Chart roles (dataviz reference palette, validated on the white surface).
-   Stages: one hue each in board order (adjacent pairs validated); always
-   shown beside the stage's label, never alone. */
+/* Chart role (dataviz reference palette): the single series of the
+   Insights charts, and the live-refresh highlight. */
 :root {
   --series-1: #2a78d6;
-  --status-critical: #d03b3b;
-  --status-warning: #fab219;
-  --status-good: #0ca30c;
-  --stage-backlog: #8a8a85;
-  --stage-todo: #eda100;
-  --stage-plan: #6250d6;
-  --stage-wip: #eb6834;
-  --stage-qa: #2a78d6;
-  --stage-review: #e87ba4;
-  --stage-done: #008300;
-}
-
-/* The same hues stepped for the dark surface (validated on #0d1218). */
-:root {
   @variant dark {
     --series-1: #3987e5;
-    --status-critical: #e66767;
-    --status-good: #0ca30c;
-    --stage-backlog: #8d9aab;
-    --stage-todo: #c98500;
-    --stage-plan: #9085e9;
-    --stage-wip: #d95926;
-    --stage-qa: #3987e5;
-    --stage-review: #d55181;
-    --stage-done: #0ca30c;
+  }
+}
+
+/* The six meanings (docs/design.md; live at /design). A colour means one
+   thing everywhere and always sits with a word and an icon. Each tone has
+   its text colour, a tint for states and an on-colour for the filled
+   "act now" style; every text/background pair is at least 4.5:1. */
+:root {
+  --tone-you: #bc4c00;
+  --tone-you-tint: #fff1e5;
+  --tone-you-on: #ffffff;
+  --tone-danger: #d1242f;
+  --tone-danger-tint: #ffebe9;
+  --tone-danger-on: #ffffff;
+  --tone-active: #0969da;
+  --tone-active-tint: #ddf4ff;
+  --tone-done: #1a7f37;
+  --tone-done-tint: #dafbe1;
+  --tone-new: #8250df;
+  --tone-new-tint: #fbefff;
+  --tone-new-on: #ffffff;
+  --tone-neutral: #59636e;
+  --tone-neutral-tint: #eff2f5;
+  @variant dark {
+    --tone-you: #f0883e;
+    --tone-you-tint: #31251e;
+    --tone-you-on: #1a0d00;
+    --tone-danger: #ff7b72;
+    --tone-danger-tint: #342326;
+    --tone-danger-on: #2a0606;
+    --tone-active: #58a6ff;
+    --tone-active-tint: #192a3d;
+    --tone-done: #3fb950;
+    --tone-done-tint: #152d21;
+    --tone-new: #bc8cff;
+    --tone-new-tint: #29263d;
+    --tone-new-on: #1a0b33;
+    --tone-neutral: #9198a1;
+    --tone-neutral-tint: #22272e;
   }
 }
 
 @theme inline {
-  --color-stage-backlog: var(--stage-backlog);
-  --color-stage-todo: var(--stage-todo);
-  --color-stage-plan: var(--stage-plan);
-  --color-stage-wip: var(--stage-wip);
-  --color-stage-qa: var(--stage-qa);
-  --color-stage-review: var(--stage-review);
-  --color-stage-done: var(--stage-done);
   --color-series-1: var(--series-1);
-  --color-status-critical: var(--status-critical);
-  --color-status-warning: var(--status-warning);
-  --color-status-good: var(--status-good);
+  --color-tone-you: var(--tone-you);
+  --color-tone-you-tint: var(--tone-you-tint);
+  --color-tone-you-on: var(--tone-you-on);
+  --color-tone-danger: var(--tone-danger);
+  --color-tone-danger-tint: var(--tone-danger-tint);
+  --color-tone-danger-on: var(--tone-danger-on);
+  --color-tone-active: var(--tone-active);
+  --color-tone-active-tint: var(--tone-active-tint);
+  --color-tone-done: var(--tone-done);
+  --color-tone-done-tint: var(--tone-done-tint);
+  --color-tone-new: var(--tone-new);
+  --color-tone-new-tint: var(--tone-new-tint);
+  --color-tone-new-on: var(--tone-new-on);
+  --color-tone-neutral: var(--tone-neutral);
+  --color-tone-neutral-tint: var(--tone-neutral-tint);
 }
 
 /* The shipped table container scrolls without focus; the pages wrap each

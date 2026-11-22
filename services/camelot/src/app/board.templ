@@ -3,6 +3,7 @@ package app
 import (
 	"github.com/axadrn/shadcn-templ/v2/components/button"
 	"github.com/axadrn/shadcn-templ/v2/components/field"
+	"github.com/axadrn/shadcn-templ/v2/components/icon"
 	"github.com/axadrn/shadcn-templ/v2/components/input"
 	"github.com/axadrn/shadcn-templ/v2/components/nativeselect"
 
@@ -182,7 +183,7 @@ templ boardColumn(col BoardColumn) {
 // cardTile is one card on the board: the title first, then what to notice.
 templ cardTile(bc BoardCard) {
 	{{ c := bc.Card }}
-	<article data-card={ c.ID } data-status={ string(c.Status) } data-updated={ ISO(c.UpdatedAt) } class="grid cursor-grab gap-1.5 rounded-lg border bg-card p-2.5 text-sm shadow-xs active:cursor-grabbing">
+	<article data-card={ c.ID } data-status={ string(c.Status) } data-updated={ ISO(c.UpdatedAt) } class={ "grid cursor-grab gap-1.5 rounded-lg border bg-card p-2.5 text-sm shadow-xs active:cursor-grabbing", templ.KV("border-l-4 border-l-tone-you", c.Waiting != "" || c.Status == taskmodel.StatusReview) }>
 		<a href={ TaskHref(c.ID) } class="font-medium leading-snug hover:underline" data-panel={ c.ID }>{ c.Title }</a>
 		<p class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
 			<span class="font-mono">{ c.ID }</span>
@@ -195,18 +196,24 @@ templ cardTile(bc BoardCard) {
 			}
 		</p>
 		if c.Waiting != "" || bc.Blocked || bc.Comments.Open > 0 {
-			<p class="flex flex-wrap gap-x-3 text-xs font-medium">
+			<p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium">
 				if c.Waiting != "" {
-					<span class="text-status-critical" title={ c.Waiting }>● Waiting on you</span>
+					@Tag(TagProps{Tone: ToneYou, Filled: true, Title: c.Waiting}) {
+						Needs you
+					}
 				}
 				if bc.Comments.AwaitsReply {
-					<span><span aria-hidden="true" class="text-series-1">●</span> Feedback for the agent</span>
+					@Tag(TagProps{Tone: ToneActive, Icon: icon.MessageSquare}) {
+						Feedback for the agent
+					}
 				}
 				if bc.Comments.Open > 0 {
 					<span class="text-muted-foreground">{ plural(bc.Comments.Open, "open comment", "open comments") }</span>
 				}
 				if bc.Blocked {
-					<span class="text-muted-foreground">⛔ Blocked</span>
+					@Tag(TagProps{Tone: ToneDanger, Filled: true, Title: "a dependency is not Done"}) {
+						Blocked
+					}
 				}
 			</p>
 		}

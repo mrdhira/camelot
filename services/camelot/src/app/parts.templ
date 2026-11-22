@@ -9,14 +9,6 @@ import (
 	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
 )
 
-// StageBadge is a stage's colour dot beside its label (the colour never stands alone).
-templ StageBadge(s taskmodel.Status) {
-	<span class="inline-flex items-center gap-1.5 text-xs font-medium">
-		<span aria-hidden="true" data-light class={ "size-2 shrink-0 rounded-full", stageDot(s) }></span>
-		{ s.Label() }
-	</span>
-}
-
 // answerForm answers the question waiting on a card: one button per option
 // (in the agent's order, the first highlighted) and, in its own form so
 // Enter never picks an option, a free-text answer.

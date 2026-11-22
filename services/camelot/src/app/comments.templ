@@ -7,6 +7,7 @@ import (
 
 	"github.com/axadrn/shadcn-templ/v2/components/button"
 	"github.com/axadrn/shadcn-templ/v2/components/field"
+	"github.com/axadrn/shadcn-templ/v2/components/icon"
 	"github.com/axadrn/shadcn-templ/v2/components/nativeselect"
 	"github.com/axadrn/shadcn-templ/v2/components/textarea"
 
@@ -45,7 +46,11 @@ templ Comments(p CommentsProps) {
 				}
 			</h2>
 			if p.Kind == commentmodel.KindCard && p.Thread.AwaitsReply {
-				<p class="text-xs font-medium" role="status"><span aria-hidden="true" class="text-series-1">● </span>Feedback for the agent: no reply yet</p>
+				<p role="status">
+					@Tag(TagProps{Tone: ToneActive, Icon: icon.MessageSquare}) {
+						Feedback for the agent: no reply yet
+					}
+				</p>
 			}
 		</div>
 		if len(p.Thread.Comments) == 0 {

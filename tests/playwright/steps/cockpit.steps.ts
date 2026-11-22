@@ -94,6 +94,23 @@ Then("on the board, card {string} shows {string} and {string}", async ({ page },
   await expect(tile).toContainText(b);
 });
 
+Then("card {string} shows {string} as {string}", async ({ page }, id: string, text: string, tone: string) => {
+  await expect(page.locator(`[data-card="${id}"] [data-tone="${tone}"]`, { hasText: text })).toBeVisible();
+});
+
+Then(
+  "the column {string} is marked {string}, {string} is marked {string} and {string} is marked {string}",
+  async ({ page }, a: string, ta: string, b: string, tb: string, c: string, tc: string) => {
+    for (const [column, tone] of [[a, ta], [b, tb], [c, tc]]) {
+      await expect(page.locator(`[data-column="${column}"] h2 [data-light]`)).toHaveClass(new RegExp(`bg-tone-${tone}`));
+    }
+  },
+);
+
+When("he opens {string} from the footer", async ({ page }, name: string) => {
+  await page.getByRole("contentinfo").getByRole("link", { name }).click();
+});
+
 When("he resolves the comment {string}", async ({ page }, text: string) => {
   await page.getByRole("listitem").filter({ hasText: text }).getByRole("button", { name: /^Resolve/ }).click();
 });

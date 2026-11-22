@@ -44,24 +44,22 @@ templ Task(p TaskProps) {
 				}
 			}
 			<div class="flex flex-wrap gap-1.5">
-				@badge.Badge(badge.Props{Variant: StatusVariant(c.Status)}) {
-					{ c.Status.Label() }
-				}
+				@StageTag(c.Status)
 				@badge.Badge(badge.Props{Variant: badge.VariantOutline, Attributes: templ.Attributes{"title": c.Type.Meaning()}}) {
 					{ string(c.Type) }
 				}
 				if c.MilestoneID != "" {
-					@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Href: TaskHref(c.MilestoneID)}) {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Href: TaskHref(c.MilestoneID)}) {
 						{ c.MilestoneID }
 					}
 				}
 				if c.Assignee != "" {
-					@badge.Badge(badge.Props{Variant: badge.VariantGhost}) {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
 						{ "@" + c.Assignee }
 					}
 				}
 				if p.Detail.Blocked() {
-					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					@Tag(TagProps{Tone: ToneDanger, Filled: true, Title: "a dependency is not Done"}) {
 						Blocked
 					}
 				}
@@ -149,7 +147,7 @@ templ Task(p TaskProps) {
 				@card.Card() {
 					@card.Header() {
 						@card.Title() {
-							@StageBadge(c.Status)
+							@StageTag(c.Status)
 						}
 						@card.Description() {
 							{ c.Status.Stage() }
@@ -183,8 +181,8 @@ templ Task(p TaskProps) {
 
 // waitingBox is the question waiting on a card with its answer form.
 templ waitingBox(c *taskmodel.Card) {
-	<section aria-labelledby={ "waiting-" + c.ID } class="grid gap-3 rounded-xl border-2 border-status-critical/60 p-4">
-		<h2 id={ "waiting-" + c.ID } class="text-xs font-semibold uppercase tracking-wide text-status-critical">Waiting for your decision</h2>
+	<section aria-labelledby={ "waiting-" + c.ID } class="grid gap-3 rounded-xl border-2 border-tone-you/60 p-4">
+		<h2 id={ "waiting-" + c.ID } class="text-xs font-semibold uppercase tracking-wide text-tone-you">Waiting for your decision</h2>
 		<p class="font-medium">{ c.Waiting }</p>
 		@answerForm(c)
 	</section>
@@ -199,12 +197,14 @@ templ TaskPanel(p TaskProps) {
 			<p class="font-mono text-xs text-muted-foreground">{ c.ID } · { string(c.Type) }</p>
 			<h2 class="text-lg font-semibold leading-snug" data-panel-title>{ c.Title }</h2>
 			<div class="flex flex-wrap items-center gap-3">
-				@StageBadge(c.Status)
+				@StageTag(c.Status)
 				if c.Assignee != "" {
 					<span class="text-xs text-muted-foreground">{ "@" + c.Assignee }</span>
 				}
 				if p.Detail.Blocked() {
-					<span class="text-xs text-muted-foreground">⛔ Blocked</span>
+					@Tag(TagProps{Tone: ToneDanger, Filled: true, Title: "a dependency is not Done"}) {
+						Blocked
+					}
 				}
 			</div>
 		</div>

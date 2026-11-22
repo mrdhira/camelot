@@ -57,26 +57,26 @@ func Insights(o *insightmodel.Overview) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = StatTile("Work in progress", itoa(o.WIP), insightmodel.FormulaWIP, "/board", false).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = StatTile("Work in progress", itoa(o.WIP), insightmodel.FormulaWIP, "/board", "").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = StatTile("Finished, 12 weeks", itoa(o.Finished), insightmodel.FormulaThroughput, "#throughput", false).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = StatTile("Finished, 12 weeks", itoa(o.Finished), insightmodel.FormulaThroughput, "#throughput", "").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if o.Cycle.Shown() {
-				templ_7745c5c3_Err = StatTile("Cycle time p50 / p85", Duration(o.Cycle.P50)+" / "+Duration(o.Cycle.P85), fmt.Sprintf("n = %d. %s", o.Cycle.N, insightmodel.FormulaCycleTime), "#cycle", false).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = StatTile("Cycle time p50 / p85", Duration(o.Cycle.P50)+" / "+Duration(o.Cycle.P85), fmt.Sprintf("n = %d. %s", o.Cycle.N, insightmodel.FormulaCycleTime), "#cycle", "").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = StatTile("Cycle time p50 / p85", "n = "+itoa(o.Cycle.N), fmt.Sprintf("shown from %d finished cards with a recorded start. %s", insightmodel.MinSample, insightmodel.FormulaCycleTime), "#cycle", false).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = StatTile("Cycle time p50 / p85", "n = "+itoa(o.Cycle.N), fmt.Sprintf("shown from %d finished cards with a recorded start. %s", insightmodel.MinSample, insightmodel.FormulaCycleTime), "#cycle", "").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = StatTile("Debt share of open work", Percent(o.OpenDebt, o.OpenTotal), fmt.Sprintf("%d of %d open cards. %s", o.OpenDebt, o.OpenTotal, insightmodel.FormulaDebtShare), "/board?type=tech-debt", false).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = StatTile("Debt share of open work", Percent(o.OpenDebt, o.OpenTotal), fmt.Sprintf("%d of %d open cards. %s", o.OpenDebt, o.OpenTotal, insightmodel.FormulaDebtShare), "/board?type=tech-debt", "").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

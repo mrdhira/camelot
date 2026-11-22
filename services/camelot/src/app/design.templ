@@ -1,0 +1,134 @@
+package app
+
+import (
+	"github.com/axadrn/shadcn-templ/v2/components/badge"
+	"github.com/axadrn/shadcn-templ/v2/components/icon"
+
+	"github.com/mrdhira/camelot/services/camelot/internal/docmodel"
+	"github.com/mrdhira/camelot/services/camelot/internal/insightmodel"
+	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
+)
+
+// filledTones are the tones with a filled ("act now") look.
+var filledTones = map[Tone]string{ToneYou: "Needs you", ToneDanger: "Blocked", ToneNew: "3"}
+
+// toneNames are the tones' names in the design book.
+var toneNames = map[Tone]string{ToneYou: "Needs you", ToneDanger: "Danger", ToneActive: "Active", ToneDone: "Done", ToneNew: "New", ToneNeutral: "Neutral"}
+
+// DesignBook is the reference for how Camelot looks: the six meanings, the
+// emphasis ladder, stages and document statuses, numbers, and the rules,
+// drawn with the components the pages use (docs/design.md in the repository).
+templ DesignBook() {
+	@Layout("Design book", "") {
+		@PageHeader("Design book", "How Camelot looks and why: the rules every page follows, drawn with the real components. Flip the theme switch to see both themes.")
+		@Section("1. A colour means one thing, everywhere", "Six meanings. Each badge shows a word and an icon with its colour, never colour alone (WCAG 1.4.1); every text and background pair is at least 4.5:1 in both themes.") {
+			<div class="grid gap-2">
+				for _, t := range Tones {
+					<div class="grid gap-2 rounded-xl border p-3 sm:grid-cols-[9rem_14rem_minmax(0,1fr)] sm:items-center">
+						<p class="text-sm font-semibold">{ toneNames[t] }</p>
+						<div class="flex flex-wrap items-center gap-1.5">
+							@Tag(TagProps{Tone: t}) {
+								{ toneNames[t] }
+							}
+							if label, ok := filledTones[t]; ok {
+								@Tag(TagProps{Tone: t, Filled: true}) {
+									{ label }
+								}
+							}
+						</div>
+						<p class="text-sm text-muted-foreground">{ ToneMeaning(t) }</p>
+					</div>
+				}
+			</div>
+		}
+		@Section("2. Loudness follows urgency", "If everything is loud, nothing is. Three levels, from act-now to background.") {
+			<div class="grid gap-2 sm:grid-cols-3">
+				<div class="grid content-start gap-2 rounded-xl border p-3">
+					<p class="text-sm font-semibold">Filled: act now</p>
+					<div class="flex flex-wrap gap-1.5">
+						@Tag(TagProps{Tone: ToneYou, Filled: true}) {
+							Needs you
+						}
+						@Tag(TagProps{Tone: ToneDanger, Filled: true}) {
+							Blocked
+						}
+					</div>
+					<p class="text-xs text-muted-foreground">Only a decision or review that waits for you, and something broken. The unread count is the one other fill.</p>
+				</div>
+				<div class="grid content-start gap-2 rounded-xl border p-3">
+					<p class="text-sm font-semibold">Tint: a state</p>
+					<div class="flex flex-wrap gap-1.5">
+						@StageTag(taskmodel.StatusWIP)
+						@DocStatusTag(docmodel.StatusApproved)
+						@Tag(TagProps{Tone: ToneDanger, Icon: icon.Clock}) {
+							9.5 d
+						}
+					</div>
+					<p class="text-xs text-muted-foreground">Stages, document statuses, risks (older than usual).</p>
+				</div>
+				<div class="grid content-start gap-2 rounded-xl border p-3">
+					<p class="text-sm font-semibold">Outline or plain: metadata</p>
+					<div class="flex flex-wrap gap-1.5">
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+							feature
+						}
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+							DITA-004
+						}
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+							{ "@go-engineer" }
+						}
+					</div>
+					<p class="text-xs text-muted-foreground">Type, milestone, agent, document type: never a meaning colour.</p>
+				</div>
+			</div>
+		}
+		@Section("3. Stages say whose turn it is", "The colour is the turn; the name is the detail. Board columns use the same colour as a dot beside the name; a tile with a question or in Review gets an orange edge (the tag or the column name says why).") {
+			<div class="grid gap-2 rounded-xl border p-3">
+				for _, s := range taskmodel.Statuses {
+					<div class="grid gap-1 sm:grid-cols-[13rem_minmax(0,1fr)] sm:items-center">
+						<div class="flex items-center gap-2">
+							@StageTag(s)
+						</div>
+						<p class="text-xs text-muted-foreground">{ s.Stage() }</p>
+					</div>
+				}
+			</div>
+		}
+		@Section("4. Document statuses", "In review is your turn; Approved is done; the rest wait.") {
+			<div class="flex flex-wrap gap-1.5 rounded-xl border p-3">
+				for _, s := range docmodel.Statuses {
+					@DocStatusTag(s)
+				}
+			</div>
+		}
+		@Section("5. Numbers get colour only when they need action", "A tile is coloured only above zero: orange for what waits on you (Waiting on you, In review), red for what is blocked or stale.") {
+			<div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+				@StatTile("Waiting on you", "2", "cards with a question and documents in review", "/#decisions", ToneYou)
+				@StatTile("Blocked", "1", "unfinished cards with a dependency not Done", "/board?blocked=1", ToneDanger)
+				@StatTile("Work in progress", "3", insightmodel.FormulaWIP, "/board", "")
+				@StatTile("Done this week", "4", "cards finished since Monday 00:00 UTC", "/insights", "")
+			</div>
+		}
+		@Section("6. The rules", "For people and agents changing Camelot; the same list is in docs/design.md.") {
+			<ol class="grid list-decimal gap-1.5 pl-5 text-sm">
+				<li>One colour, one meaning, on every page. A new badge picks one of the six meanings or stays neutral.</li>
+				<li>Every meaning badge carries a word and the meaning's icon; colour is never the only signal.</li>
+				<li>Filled only for act-now. Tints for states. Outline or plain text for metadata.</li>
+				<li>Text never wears a chart colour; a coloured dot or bar beside the text carries it.</li>
+				<li>Both themes, one layout: a new colour gets a light and a dark step, each at least 4.5:1 for text, checked by the accessibility test on every page.</li>
+				<li>Charts use their own validated chart palette (Insights), not the meanings.</li>
+				<li>Components as shipped: Tag is the shipped Badge with a meaning's classes, never a copy.</li>
+			</ol>
+		}
+		@Section("7. Sources", "Where these rules come from.") {
+			<ul class="grid gap-1 text-sm">
+				<li><a class="underline underline-offset-4" href="https://atlassian.design/components/lozenge/usage">Atlassian Lozenge</a>: six meanings; "Don't use color alone to signify an important attribute."</li>
+				<li><a class="underline underline-offset-4" href="https://support.atlassian.com/jira-cloud-administration/docs/what-is-a-workflow-status/">Jira workflow statuses</a>: To do, In progress, Done in grey, blue, green.</li>
+				<li><a class="underline underline-offset-4" href="https://primer.style/foundations/color/overview">GitHub Primer colour</a>: muted backgrounds for subtle emphasis, emphasis backgrounds for strong states; the light text-on-tint pairs.</li>
+				<li><a class="underline underline-offset-4" href="https://carbondesignsystem.com/patterns/status-indicator-pattern/">IBM Carbon status indicators</a>: at least two of colour, shape, symbol; five or six indicators at most.</li>
+				<li><a class="underline underline-offset-4" href="https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html">WCAG 2.2: 1.4.1 Use of Color</a> and <a class="underline underline-offset-4" href="https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html">1.4.3 Contrast</a>.</li>
+			</ul>
+		}
+	}
+}

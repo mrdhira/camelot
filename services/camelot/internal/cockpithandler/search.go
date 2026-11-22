@@ -25,6 +25,7 @@ var pages = []result{
 	{Kind: "page", ID: "docs", Title: "Documents", Detail: "the document chain", Href: "/docs"},
 	{Kind: "page", ID: "new", Title: "New card", Detail: "create a card", Href: "/tasks/new"},
 	{Kind: "page", ID: "check", Title: "Data quality", Detail: "problems in cards and documents", Href: "/check"},
+	{Kind: "page", ID: "design", Title: "Design book", Detail: "colours, badges and the rules", Href: "/design"},
 }
 
 // searchAll returns the pages whose title matches q, then the search service's cards and documents with their pages' links.

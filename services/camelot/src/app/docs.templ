@@ -101,9 +101,7 @@ templ docNode(n DocNode, depth int) {
 						{ d.Type.Short() }
 					}
 					<a href={ DocHref(d.ID) } class="font-medium hover:underline">{ d.ID } · { d.Title }</a>
-					@badge.Badge(badge.Props{Variant: DocStatusVariant(d.Status)}) {
-						{ d.Status.Label() }
-					}
+					@DocStatusTag(d.Status)
 				</div>
 				<p class="text-xs text-muted-foreground">
 					{ d.Owner }
@@ -119,7 +117,7 @@ templ docNode(n DocNode, depth int) {
 					<ul class="flex flex-wrap gap-1">
 						for _, g := range n.Progress.Gaps {
 							<li>
-								@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
+								@Tag(TagProps{Tone: ToneDanger, Filled: true}) {
 									{ g }
 								}
 							</li>
@@ -199,11 +197,9 @@ templ Doc(p DocProps) {
 			<p class="font-mono text-sm text-muted-foreground">{ d.ID } · { d.Path }</p>
 			@PageHeader(d.Title, d.Type.Label()+" · owner "+d.Owner+" · updated "+d.Updated)
 			<div class="flex flex-wrap gap-1.5">
-				@badge.Badge(badge.Props{Variant: DocStatusVariant(d.Status)}) {
-					{ d.Status.Label() }
-				}
+				@DocStatusTag(d.Status)
 				for _, g := range p.Progress.Gaps {
-					@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
+					@Tag(TagProps{Tone: ToneDanger, Filled: true}) {
 						{ g }
 					}
 				}

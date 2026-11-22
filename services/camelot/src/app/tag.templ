@@ -1,0 +1,30 @@
+package app
+
+import (
+	"github.com/axadrn/shadcn-templ/v2/components/badge"
+
+	"github.com/mrdhira/camelot/services/camelot/internal/docmodel"
+	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
+)
+
+// Tag is the shipped Badge in a meaning's colour, with its icon and word.
+templ Tag(p TagProps) {
+	@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: tagClass(p), Attributes: templ.Attributes{"data-tone": string(p.Tone), "title": p.Title}}) {
+		@tagIcon(p)
+		{ children... }
+	}
+}
+
+// StageTag is a card stage as a tag: its turn's colour and icon, and its name.
+templ StageTag(s taskmodel.Status) {
+	@Tag(TagProps{Tone: StageTone(s), Title: s.Stage()}) {
+		{ s.Label() }
+	}
+}
+
+// DocStatusTag is a document status as a tag.
+templ DocStatusTag(s docmodel.Status) {
+	@Tag(TagProps{Tone: DocTone(s)}) {
+		{ s.Label() }
+	}
+}

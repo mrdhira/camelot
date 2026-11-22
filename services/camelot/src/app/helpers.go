@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/axadrn/shadcn-templ/v2/components/badge"
-
 	"github.com/mrdhira/camelot/services/camelot/internal/docmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
 )
@@ -65,30 +63,6 @@ func Percent(part, total int) string {
 	return fmt.Sprintf("%d%%", part*100/total)
 }
 
-// StatusVariant is the badge look of a card status.
-func StatusVariant(s taskmodel.Status) badge.Variant {
-	switch s {
-	case taskmodel.StatusDone:
-		return badge.VariantSecondary
-	case taskmodel.StatusBacklog, taskmodel.StatusTodo:
-		return badge.VariantOutline
-	default:
-		return badge.VariantDefault
-	}
-}
-
-// DocStatusVariant is the badge look of a document status.
-func DocStatusVariant(s docmodel.Status) badge.Variant {
-	switch s {
-	case docmodel.StatusApproved:
-		return badge.VariantDefault
-	case docmodel.StatusInReview:
-		return badge.VariantSecondary
-	default:
-		return badge.VariantOutline
-	}
-}
-
 // TaskHref is a card's page.
 func TaskHref(id string) string { return "/tasks/" + id }
 
@@ -124,20 +98,6 @@ func percentOf(v, maxV int) float64 {
 	}
 	return float64(v) * 100 / float64(maxV)
 }
-
-// stageDots are the stages' colour classes (always shown with the stage's label).
-var stageDots = map[taskmodel.Status]string{
-	taskmodel.StatusBacklog: "bg-stage-backlog text-stage-backlog",
-	taskmodel.StatusTodo:    "bg-stage-todo text-stage-todo",
-	taskmodel.StatusPlan:    "bg-stage-plan text-stage-plan",
-	taskmodel.StatusWIP:     "bg-stage-wip text-stage-wip",
-	taskmodel.StatusQA:      "bg-stage-qa text-stage-qa",
-	taskmodel.StatusReview:  "bg-stage-review text-stage-review",
-	taskmodel.StatusDone:    "bg-stage-done text-stage-done",
-}
-
-// stageDot is a stage's colour class.
-func stageDot(s taskmodel.Status) string { return stageDots[s] }
 
 // nextStatus is the stage after s; ok false at Done.
 func nextStatus(s taskmodel.Status) (taskmodel.Status, bool) {

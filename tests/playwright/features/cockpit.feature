@@ -3,6 +3,14 @@ Feature: Dhira runs his agents' work from the cockpit
   creates them, reads documents and sets their review status. Agents use
   the CLI and MCP; the fixture's cards were created through the CLI.
 
+  Scenario: Badges say what needs Dhira, what is wrong and whose turn it is
+    Given Dhira opens "/board"
+    Then card "FIX-011" shows "Needs you" as "you"
+    And card "FIX-012" shows "Blocked" as "danger"
+    And the column "wip" is marked "active", "review" is marked "you" and "backlog" is marked "neutral"
+    When he opens "Design book" from the footer
+    Then he sees the heading "Design book"
+
   Scenario: The cockpit opens on what changed, then what waits for Dhira
     Given Dhira opens "/"
     Then the first heading is "9 updates"
@@ -144,6 +152,7 @@ Feature: Dhira runs his agents' work from the cockpit
       | /tasks/new                  |
       | /check                      |
       | /tasks/FIX-011/files/PLAN.md |
+      | /design                     |
 
   Scenario Outline: Every page is accessible on a desktop
     Given Dhira opens "<path>" on a 1280 px wide screen
@@ -157,6 +166,7 @@ Feature: Dhira runs his agents' work from the cockpit
       | /insights      |
       | /docs          |
       | /tasks/FIX-011 |
+      | /design        |
 
   Scenario Outline: Every page is accessible in the dark theme
     Given Dhira's system is set to dark
@@ -175,3 +185,5 @@ Feature: Dhira runs his agents' work from the cockpit
       | /              | 390   |
       | /tasks/FIX-011 | 390   |
       | /docs/PRD900   | 390   |
+      | /design        | 1280  |
+      | /design        | 390   |

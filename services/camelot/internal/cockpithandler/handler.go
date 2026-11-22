@@ -71,6 +71,7 @@ func (h *Handler) Routes(s *httpx.Server) {
 	s.Post("/board", h.moveFallback)
 	s.Get("/insights", h.insights)
 	s.Get("/check", h.check)
+	s.Get("/design", h.design)
 	s.Get("/tasks/new", h.taskNew)
 	s.Post("/tasks", h.taskCreate)
 	s.Get("/tasks/{id}", h.task)
@@ -300,6 +301,11 @@ func (h *Handler) insights(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writePage(w, r, http.StatusOK, app.Insights(o))
+}
+
+// design is GET /design: the design book.
+func (h *Handler) design(w http.ResponseWriter, r *http.Request) {
+	h.writePage(w, r, http.StatusOK, app.DesignBook())
 }
 
 // check is GET /check.
