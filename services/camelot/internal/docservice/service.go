@@ -24,6 +24,14 @@ type Service interface {
 	SetStatus(ctx context.Context, request *docmodel.SetStatusRequest) (*docmodel.Doc, error)
 	// Exists reports which of ids name a document.
 	Exists(ctx context.Context, ids []string) (map[string]bool, error)
+	// Sync compares the files with their last snapshots and records every
+	// change (created, edited, status, removed) by ActorFile at detection
+	// time; the first sync ever is a silent baseline.
+	Sync(ctx context.Context) error
+	// Events returns document changes matching filter, newest first.
+	Events(ctx context.Context, filter *docmodel.EventFilter) ([]*docmodel.Event, error)
+	// EventMaxID returns the highest document event ID; 0 when none.
+	EventMaxID(ctx context.Context) (int64, error)
 }
 
 // Config is the service's settings.
@@ -33,16 +41,90 @@ type Config struct {
 }
 
 type service struct {
-	config  Config
-	docRepo docrepository.Repository
+	config      Config
+	docRepo     docrepository.Repository
+	historyRepo docrepository.History
 }
 
-// New returns the Service on docRepo.
-func New(config Config, docRepo docrepository.Repository) Service {
+// New returns the Service on the document files and their history.
+func New(config Config, docRepo docrepository.Repository, historyRepo docrepository.History) Service {
 	if config.Zone == nil {
 		config.Zone = time.UTC
 	}
-	return &service{config: config, docRepo: docRepo}
+	return &service{config: config, docRepo: docRepo, historyRepo: historyRepo}
+}
+
+// Sync records what changed in the files since the last snapshots.
+func (s *service) Sync(ctx context.Context) error {
+	docs, problems, err := s.load(ctx)
+	if err != nil {
+		return err
+	}
+	snaps, err := s.historyRepo.SnapshotSelect(ctx)
+	if err != nil {
+		return err
+	}
+	baselined, err := s.historyRepo.Baselined(ctx)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	baseline := !baselined
+	unreadable := map[string]bool{}
+	for _, p := range problems {
+		unreadable[p.Path] = true
+	}
+	bySnap := map[string]*docmodel.Snapshot{}
+	for _, sn := range snaps {
+		bySnap[sn.DocID] = sn
+	}
+	var changes []*docmodel.Change
+	seen := map[string]bool{}
+	for _, d := range docs {
+		seen[d.ID] = true
+		sn, ok := bySnap[d.ID]
+		change := &docmodel.Change{DocID: d.ID, Snapshot: docmodel.NewSnapshot(d, now)}
+		switch {
+		case !ok:
+			if !baseline {
+				change.Events = []*docmodel.Event{docmodel.NewEvent(d.ID, docmodel.ActorFile, docmodel.KindCreated, "", string(d.Status), now)}
+			}
+		case sn.Hash != d.Hash:
+			change.BaseHash = sn.Hash
+			event := docmodel.NewEvent(d.ID, docmodel.ActorFile, docmodel.KindEdited, "", d.ModifiedAt.Format(time.RFC3339), now)
+			if sn.Status != d.Status {
+				event = docmodel.NewEvent(d.ID, docmodel.ActorFile, docmodel.KindStatus, string(sn.Status), string(d.Status), now)
+			}
+			change.Events = []*docmodel.Event{event}
+		case sn.Path != d.Path || sn.Title != d.Title:
+			change.BaseHash = sn.Hash
+		default:
+			continue
+		}
+		changes = append(changes, change)
+	}
+	for _, sn := range snaps {
+		if !seen[sn.DocID] && !unreadable[sn.Path] {
+			changes = append(changes, &docmodel.Change{DocID: sn.DocID, BaseHash: sn.Hash, Events: []*docmodel.Event{
+				docmodel.NewEvent(sn.DocID, docmodel.ActorFile, docmodel.KindRemoved, sn.Path, "", now),
+			}})
+		}
+	}
+	if len(changes) == 0 && !baseline {
+		return nil
+	}
+	_, err = s.historyRepo.SnapshotSync(ctx, changes, nil)
+	return err
+}
+
+// EventMaxID returns the highest document event ID.
+func (s *service) EventMaxID(ctx context.Context) (int64, error) {
+	return s.historyRepo.DocEventMaxID(ctx)
+}
+
+// Events returns the matching document changes.
+func (s *service) Events(ctx context.Context, filter *docmodel.EventFilter) ([]*docmodel.Event, error) {
+	return s.historyRepo.DocEventSelect(ctx, filter)
 }
 
 // List reads every document and checks the links between them.
@@ -122,15 +204,37 @@ func (s *service) SetStatus(ctx context.Context, request *docmodel.SetStatusRequ
 	if err != nil {
 		return nil, err
 	}
-	doc := chain.Doc
-	today := time.Now().In(s.config.Zone).Format(docmodel.DateLayout)
-	fields := map[string]string{docmodel.KeyStatus: string(status), docmodel.KeyUpdated: today}
-	if err := s.docRepo.DocUpdateFields(ctx, doc.Path, fields); err != nil {
+	actor := strings.TrimSpace(request.Actor)
+	if actor == "" || strings.ContainsAny(actor, "\r\n") {
+		return nil, fmt.Errorf("%w: actor is required", docmodel.ErrInvalid)
+	}
+	if err := s.Sync(ctx); err != nil {
 		return nil, err
 	}
-	doc.Status = status
-	doc.Updated = today
-	return doc, nil
+	before := chain.Doc
+	today := time.Now().In(s.config.Zone).Format(docmodel.DateLayout)
+	fields := map[string]string{docmodel.KeyStatus: string(status), docmodel.KeyUpdated: today}
+	content, err := s.docRepo.DocRender(ctx, before.Path, fields)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	after := *before
+	after.Status, after.Updated, after.Hash, after.ModifiedAt = status, today, docmodel.HashOf(content), now
+	change := &docmodel.Change{DocID: before.ID, BaseHash: before.Hash, Snapshot: docmodel.NewSnapshot(&after, now)}
+	if before.Status != status {
+		change.Events = []*docmodel.Event{docmodel.NewEvent(before.ID, actor, docmodel.KindStatus, string(before.Status), string(status), now)}
+	}
+	written, err := s.historyRepo.SnapshotSync(ctx, []*docmodel.Change{change}, func() error {
+		return s.docRepo.DocWrite(ctx, before.Path, content)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if before.Status != status && len(written) == 0 {
+		return nil, fmt.Errorf("%w: %s changed while its status was being set; reload and retry", docmodel.ErrInvalid, before.ID)
+	}
+	return &after, nil
 }
 
 // Exists reports which ids name a document.

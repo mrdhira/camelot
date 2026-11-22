@@ -111,7 +111,7 @@ func (s *Store) read(rel string) (*docmodel.Doc, *docmodel.Problem) {
 	if !ok {
 		return nil, nil
 	}
-	doc := &docmodel.Doc{Path: rel, Body: fm.Body, Serves: []string{}}
+	doc := &docmodel.Doc{Path: rel, Body: fm.Body, Serves: []string{}, Hash: docmodel.HashOf(content), ModifiedAt: info.ModTime().UTC()}
 	var msgs []string
 	if doc.Type, err = docmodel.ParseType(typeField.Value); err != nil {
 		return nil, &docmodel.Problem{Path: rel, Message: err.Error()}
@@ -154,24 +154,19 @@ func (s *Store) read(rel string) (*docmodel.Doc, *docmodel.Problem) {
 	return doc, nil
 }
 
-// DocUpdateFields rewrites the given keys of the file at rel, through
-// the vault root: a temporary file beside it, then a rename.
-func (s *Store) DocUpdateFields(ctx context.Context, rel string, fields map[string]string) error {
+// DocRender returns rel with the given keys rewritten, read through the vault root.
+func (s *Store) DocRender(ctx context.Context, rel string, fields map[string]string) ([]byte, error) {
 	if err := s.checkRoots(rel); err != nil {
-		return err
+		return nil, err
 	}
 	root, err := os.OpenRoot(s.vault)
 	if err != nil {
-		return fmt.Errorf("doc update: %w", err)
+		return nil, fmt.Errorf("doc render: %w", err)
 	}
 	defer func() { _ = root.Close() }()
-	info, err := root.Stat(rel)
-	if err != nil {
-		return fmt.Errorf("doc update: %w", err)
-	}
 	content, err := root.ReadFile(rel)
 	if err != nil {
-		return fmt.Errorf("doc update: %w", err)
+		return nil, fmt.Errorf("doc render: %w", err)
 	}
 	keys := make([]string, 0, len(fields))
 	for k := range fields {
@@ -180,11 +175,25 @@ func (s *Store) DocUpdateFields(ctx context.Context, rel string, fields map[stri
 	slices.Sort(keys)
 	for _, k := range keys {
 		if content, err = frontmatter.Set(content, k, fields[k]); err != nil {
-			return fmt.Errorf("doc update %s: %w", rel, err)
+			return nil, fmt.Errorf("doc render %s: %w", rel, err)
 		}
 	}
-	if ctx.Err() != nil {
-		return ctx.Err()
+	return content, ctx.Err()
+}
+
+// DocWrite replaces rel with content through the vault root: a temporary file beside it, then a rename.
+func (s *Store) DocWrite(_ context.Context, rel string, content []byte) error {
+	if err := s.checkRoots(rel); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(s.vault)
+	if err != nil {
+		return fmt.Errorf("doc write: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	info, err := root.Stat(rel)
+	if err != nil {
+		return fmt.Errorf("doc write: %w", err)
 	}
 	return replace(root, rel, content, info.Mode().Perm())
 }

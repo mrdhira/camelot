@@ -4,6 +4,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -25,7 +26,7 @@ func New(db *sql.DB) *Store {
 }
 
 // cardColumns are the cards columns every select reads, in scanCard's order.
-const cardColumns = "id, milestone_id, title, type, status, assignee, waiting, folder, description, created_at, updated_at"
+const cardColumns = "id, milestone_id, title, type, status, assignee, waiting, waiting_options, folder, description, created_at, updated_at"
 
 // CardInsert stores card, its links and events.
 func (s *Store) CardInsert(ctx context.Context, card *taskmodel.Card, events []*taskmodel.Event) error {
@@ -38,7 +39,7 @@ func (s *Store) CardInsert(ctx context.Context, card *taskmodel.Card, events []*
 			return fmt.Errorf("%w: %s", taskmodel.ErrExists, card.ID)
 		}
 		_, err := tx.ExecContext(ctx,
-			"INSERT INTO cards ("+cardColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO cards ("+cardColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			card.ID,
 			card.MilestoneID,
 			card.Title,
@@ -46,6 +47,7 @@ func (s *Store) CardInsert(ctx context.Context, card *taskmodel.Card, events []*
 			card.Status,
 			card.Assignee,
 			card.Waiting,
+			optionsJSON(card.Options),
 			card.Folder,
 			card.Description,
 			card.CreatedAt,
@@ -116,7 +118,7 @@ func (s *Store) CardUpdate(ctx context.Context, card *taskmodel.Card, readAt tim
 	updated := false
 	err := sqlitedb.WithTx(ctx, s.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`UPDATE cards SET milestone_id = ?, title = ?, type = ?, status = ?, assignee = ?, waiting = ?, folder = ?, description = ?, updated_at = ?
+			`UPDATE cards SET milestone_id = ?, title = ?, type = ?, status = ?, assignee = ?, waiting = ?, waiting_options = ?, folder = ?, description = ?, updated_at = ?
 			WHERE id = ? AND deleted_at IS NULL AND updated_at = ?`,
 			card.MilestoneID,
 			card.Title,
@@ -124,6 +126,7 @@ func (s *Store) CardUpdate(ctx context.Context, card *taskmodel.Card, readAt tim
 			card.Status,
 			card.Assignee,
 			card.Waiting,
+			optionsJSON(card.Options),
 			card.Folder,
 			card.Description,
 			card.UpdatedAt,
@@ -238,6 +241,10 @@ func (s *Store) CardEventSelect(ctx context.Context, filter *taskmodel.EventFilt
 		where = append(where, "created_at >= ?")
 		args = append(args, filter.Since)
 	}
+	if filter != nil && filter.AfterID > 0 {
+		where = append(where, "id > ?")
+		args = append(args, filter.AfterID)
+	}
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -261,6 +268,15 @@ func (s *Store) CardEventSelect(ctx context.Context, filter *taskmodel.EventFilt
 	return events, rows.Err()
 }
 
+// CardEventMaxID returns the highest event ID.
+func (s *Store) CardEventMaxID(ctx context.Context) (int64, error) {
+	var id int64
+	if err := s.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(id), 0) FROM card_events").Scan(&id); err != nil {
+		return 0, fmt.Errorf("card event max id: %w", err)
+	}
+	return id, nil
+}
+
 // selectCards reads the live cards matching where with their links.
 func (s *Store) selectCards(ctx context.Context, where string, args []any) ([]*taskmodel.Card, error) {
 	q := "SELECT " + cardColumns + " FROM cards WHERE deleted_at IS NULL"
@@ -277,8 +293,12 @@ func (s *Store) selectCards(ctx context.Context, where string, args []any) ([]*t
 	byID := map[string]*taskmodel.Card{}
 	for rows.Next() {
 		c := &taskmodel.Card{Deps: []string{}, Docs: []string{}}
-		if err := rows.Scan(&c.ID, &c.MilestoneID, &c.Title, &c.Type, &c.Status, &c.Assignee, &c.Waiting, &c.Folder, &c.Description, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		var options string
+		if err := rows.Scan(&c.ID, &c.MilestoneID, &c.Title, &c.Type, &c.Status, &c.Assignee, &c.Waiting, &options, &c.Folder, &c.Description, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("card select: %w", err)
+		}
+		if err := json.Unmarshal([]byte(options), &c.Options); err != nil {
+			return nil, fmt.Errorf("card select %s: waiting_options: %w", c.ID, err)
 		}
 		cards = append(cards, c)
 		byID[c.ID] = c
@@ -356,6 +376,18 @@ func insertEvents(ctx context.Context, tx *sql.Tx, events []*taskmodel.Event) er
 		}
 	}
 	return nil
+}
+
+// optionsJSON encodes answer options for the waiting_options column.
+func optionsJSON(options []string) string {
+	if len(options) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(options)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
 }
 
 // placeholders returns n comma-separated question marks.

@@ -45,6 +45,26 @@ func (o *optString) list() *[]string {
 	return &l
 }
 
+// bars returns the |-separated value when the flag was given, else nil.
+func (o *optString) bars() *[]string {
+	if !o.set {
+		return nil
+	}
+	l := splitBars(o.value)
+	return &l
+}
+
+// splitBars splits a |-separated list, dropping blanks.
+func splitBars(v string) []string {
+	out := []string{}
+	for part := range strings.SplitSeq(v, "|") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // splitList splits a comma-separated list, dropping blanks.
 func splitList(v string) []string {
 	out := []string{}
@@ -58,7 +78,7 @@ func splitList(v string) []string {
 
 // cardFields are the editable card fields as flags.
 type cardFields struct {
-	milestone, title, cardType, status, assignee, waiting, folder, description, deps, docs optString
+	milestone, title, cardType, status, assignee, waiting, options, folder, description, deps, docs optString
 }
 
 // declare declares the field flags on fs.
@@ -69,6 +89,7 @@ func (f *cardFields) declare(fs *cli.FlagSet) {
 	fs.Var(&f.milestone, "milestone", "the milestone card ID; \"\" clears")
 	fs.Var(&f.assignee, "assignee", "who works on it (agent name or dhira); \"\" clears")
 	fs.Var(&f.waiting, "waiting", "the one-line question waiting for Dhira; \"\" clears")
+	fs.Var(&f.options, "options", "answer options for the question, separated by |, the recommended first; \"\" clears")
 	fs.Var(&f.folder, "folder", "the card folder under tasks/ (PLAN.md, REPORT.md); \"\" clears")
 	fs.Var(&f.description, "description", "Markdown description; \"-\" reads it from stdin")
 	fs.Var(&f.deps, "deps", "comma-separated card IDs this card waits for; \"\" clears")
@@ -78,7 +99,7 @@ func (f *cardFields) declare(fs *cli.FlagSet) {
 // perCardEnv are the environment variables w-tools cli would bind to the
 // per-card flags; a card value never comes from the environment.
 var perCardEnv = []string{"CAMELOT_ID", "CAMELOT_PREFIX", "CAMELOT_NOTE", "CAMELOT_UPDATED_AT", "CAMELOT_TITLE", "CAMELOT_TYPE", "CAMELOT_STATUS",
-	"CAMELOT_MILESTONE", "CAMELOT_ASSIGNEE", "CAMELOT_WAITING", "CAMELOT_FOLDER", "CAMELOT_DESCRIPTION", "CAMELOT_DEPS", "CAMELOT_DOCS", "CAMELOT_YES"}
+	"CAMELOT_MILESTONE", "CAMELOT_ASSIGNEE", "CAMELOT_WAITING", "CAMELOT_OPTIONS", "CAMELOT_FOLDER", "CAMELOT_DESCRIPTION", "CAMELOT_DEPS", "CAMELOT_DOCS", "CAMELOT_YES"}
 
 // refuseCardEnv fails when any per-card environment variable is set.
 func refuseCardEnv() error {
@@ -211,6 +232,7 @@ func taskCreateCommand(load func() (*config.Config, error), out, logOut io.Write
 				Status:      f.status.value,
 				Assignee:    f.assignee.value,
 				Waiting:     f.waiting.value,
+				Options:     splitBars(f.options.value),
 				Folder:      f.folder.value,
 				Description: f.description.value,
 				Deps:        splitList(f.deps.value),
@@ -255,6 +277,7 @@ func taskUpdateCommand(load func() (*config.Config, error), out, logOut io.Write
 				Status:      f.status.ptr(),
 				Assignee:    f.assignee.ptr(),
 				Waiting:     f.waiting.ptr(),
+				Options:     f.options.bars(),
 				Folder:      f.folder.ptr(),
 				Description: f.description.ptr(),
 				Deps:        f.deps.list(),

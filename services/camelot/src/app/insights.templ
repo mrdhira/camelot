@@ -12,19 +12,20 @@ import (
 // Insights is the task flow page: WIP, throughput, cycle time, open work
 // by type and milestone progress, each with its formula and sample.
 templ Insights(o *insightmodel.Overview) {
-	@Layout("Insights", NavInsights, "js/shadcn/lifecycle.js", "js/shadcn/progress.js") {
+	@Layout("Insights", NavInsights, Scripts([]Component{ComponentProgress, ComponentTooltip})...) {
 		@PageHeader("Insights", "Kanban flow measures (Kanban Guide: WIP, throughput, work item age, cycle time) as of "+When(o.Now)+".")
 		<div class="grid grid-cols-2 gap-3 md:grid-cols-4">
-			@StatTile("Work in progress", itoa(o.WIP), insightmodel.FormulaWIP, false)
-			@StatTile("Finished, 12 weeks", itoa(o.Finished), insightmodel.FormulaThroughput, false)
+			@StatTile("Work in progress", itoa(o.WIP), insightmodel.FormulaWIP, "/board", false)
+			@StatTile("Finished, 12 weeks", itoa(o.Finished), insightmodel.FormulaThroughput, "#throughput", false)
 			if o.Cycle.Shown() {
-				@StatTile("Cycle time p50 / p85", Duration(o.Cycle.P50)+" / "+Duration(o.Cycle.P85), fmt.Sprintf("n = %d. %s", o.Cycle.N, insightmodel.FormulaCycleTime), false)
+				@StatTile("Cycle time p50 / p85", Duration(o.Cycle.P50)+" / "+Duration(o.Cycle.P85), fmt.Sprintf("n = %d. %s", o.Cycle.N, insightmodel.FormulaCycleTime), "#cycle", false)
 			} else {
-				@StatTile("Cycle time p50 / p85", "n = "+itoa(o.Cycle.N), fmt.Sprintf("shown from %d finished cards with a recorded start. %s", insightmodel.MinSample, insightmodel.FormulaCycleTime), false)
+				@StatTile("Cycle time p50 / p85", "n = "+itoa(o.Cycle.N), fmt.Sprintf("shown from %d finished cards with a recorded start. %s", insightmodel.MinSample, insightmodel.FormulaCycleTime), "#cycle", false)
 			}
-			@StatTile("Debt share of open work", Percent(o.OpenDebt, o.OpenTotal), fmt.Sprintf("%d of %d open cards. %s", o.OpenDebt, o.OpenTotal, insightmodel.FormulaDebtShare), false)
+			@StatTile("Debt share of open work", Percent(o.OpenDebt, o.OpenTotal), fmt.Sprintf("%d of %d open cards. %s", o.OpenDebt, o.OpenTotal, insightmodel.FormulaDebtShare), "/board?type=tech-debt", false)
 		</div>
 		<div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+			<div id="throughput" class="scroll-mt-20"></div>
 			@Section("Throughput per week", insightmodel.FormulaThroughput) {
 				if o.Finished == 0 {
 					<p class="text-sm text-muted-foreground">No card finished in the last 12 weeks.</p>
@@ -42,6 +43,7 @@ templ Insights(o *insightmodel.Overview) {
 			@Section("Open work by type", insightmodel.FormulaDebtShare) {
 				@BarList("Open cards by type", typeBars(o))
 			}
+			<div id="cycle" class="scroll-mt-20"></div>
 			@Section("Cycle time by type", insightmodel.FormulaCycleTime+"; percentiles from "+itoa(insightmodel.MinSample)+" cards") {
 				if len(o.CycleByType) == 0 {
 					<p class="text-sm text-muted-foreground">No finished card has a recorded start yet. Cycle time starts counting from cards moved through Camelot.</p>

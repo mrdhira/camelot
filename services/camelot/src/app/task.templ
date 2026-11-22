@@ -76,20 +76,7 @@ templ Task(p TaskProps) {
 			}
 		}
 		if c.Waiting != "" {
-			@alert.Alert() {
-				@alert.Title() {
-					Waiting for your decision
-				}
-				@alert.Description() {
-					<p>{ c.Waiting }</p>
-					<form method="post" action={ TaskHref(c.ID) + "/resolve" } class="mt-2">
-						<input type="hidden" name="updated_at" value={ ISO(c.UpdatedAt) }/>
-						@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Variant: button.VariantOutline}) {
-							Mark as decided
-						}
-					</form>
-				}
-			}
+			@waitingBox(c)
 		}
 		<div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
 			<div class="grid min-w-0 content-start gap-6">
@@ -141,7 +128,7 @@ templ Task(p TaskProps) {
 											<time datetime={ ISO(e.CreatedAt) }>{ When(e.CreatedAt) }</time>
 										}
 										@table.Cell() {
-											{ e.Actor }
+											{ actorText(e.Actor) }
 										}
 										@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
 											{ eventText(e) }
@@ -160,27 +147,14 @@ templ Task(p TaskProps) {
 				@card.Card() {
 					@card.Header() {
 						@card.Title() {
-							Move
+							@StageBadge(c.Status)
 						}
 						@card.Description() {
-							{ c.Status.Label() }: { c.Status.Stage() }
+							{ c.Status.Stage() }
 						}
 					}
 					@card.Content() {
-						<form method="post" action={ TaskHref(c.ID) + "/move" } class="flex gap-2">
-							<input type="hidden" name="updated_at" value={ ISO(c.UpdatedAt) }/>
-							<label for="move-status" class="sr-only">New status</label>
-							@nativeselect.NativeSelect(nativeselect.Props{ID: "move-status", Name: "status", Class: "w-full"}) {
-								for _, s := range taskmodel.Statuses {
-									@nativeselect.Option(nativeselect.OptionProps{Value: string(s), Selected: s == c.Status}) {
-										{ s.Label() }
-									}
-								}
-							}
-							@button.Button(button.Props{Type: button.TypeSubmit}) {
-								Move
-							}
-						</form>
+						@nextStepForm(c, "")
 					}
 				}
 				@linkList("Depends on", depItems(p.Detail.Deps))
@@ -202,6 +176,60 @@ templ Task(p TaskProps) {
 			</div>
 		</div>
 	}
+}
+
+// waitingBox is the question waiting on a card with its answer form.
+templ waitingBox(c *taskmodel.Card) {
+	<section aria-labelledby={ "waiting-" + c.ID } class="grid gap-3 rounded-xl border-2 border-status-critical/60 p-4">
+		<h2 id={ "waiting-" + c.ID } class="text-xs font-semibold uppercase tracking-wide text-status-critical">Waiting for your decision</h2>
+		<p class="font-medium">{ c.Waiting }</p>
+		@answerForm(c)
+	</section>
+}
+
+// TaskPanel is a card in the side panel: what to decide, the next step, the
+// description, links and the latest changes, with the full page one link away.
+templ TaskPanel(p TaskProps) {
+	{{ c := p.Detail.Card }}
+	<div class="grid gap-5 text-sm" data-panel-card={ c.ID } data-updated={ ISO(c.UpdatedAt) }>
+		<div class="grid gap-1.5">
+			<p class="font-mono text-xs text-muted-foreground">{ c.ID } · { string(c.Type) }</p>
+			<h2 class="text-lg font-semibold leading-snug" data-panel-title>{ c.Title }</h2>
+			<div class="flex flex-wrap items-center gap-3">
+				@StageBadge(c.Status)
+				if c.Assignee != "" {
+					<span class="text-xs text-muted-foreground">{ "@" + c.Assignee }</span>
+				}
+				if p.Detail.Blocked() {
+					<span class="text-xs text-muted-foreground">⛔ Blocked</span>
+				}
+			</div>
+		</div>
+		if c.Waiting != "" {
+			@waitingBox(c)
+		}
+		@nextStepForm(c, "")
+		if p.Description != "" {
+			<div class="prose-camelot max-h-80 overflow-y-auto rounded-lg border p-3">
+				@templ.Raw(string(p.Description))
+			</div>
+		}
+		@linkList("Depends on", depItems(p.Detail.Deps))
+		@docList(c.Docs)
+		<section class="grid gap-2" aria-label="Latest changes">
+			<h3 class="text-sm font-semibold">Latest changes</h3>
+			<ol class="grid gap-1.5">
+				for i, e := range p.Detail.Events {
+					if i < 6 {
+						<li class="text-xs"><span>{ eventText(e) }</span> <span class="text-muted-foreground">· { actorText(e.Actor) } · { Ago(e.CreatedAt, p.Now) }</span></li>
+					}
+				}
+			</ol>
+		</section>
+		@button.Button(button.Props{Href: TaskHref(c.ID), Variant: button.VariantOutline, Size: button.SizeSm}) {
+			Open the full card
+		}
+	</div>
 }
 
 // linkItem is a card in a side list.
@@ -278,6 +306,18 @@ func eventText(e *taskmodel.Event) string {
 		return "moved " + taskmodel.Status(e.FromValue).Label() + " → " + taskmodel.Status(e.ToValue).Label()
 	case taskmodel.FieldDescription:
 		return "description edited"
+	case taskmodel.FieldDecision:
+		return "decided “" + e.ToValue + "” on: " + e.FromValue
+	case taskmodel.FieldWaiting:
+		if e.ToValue == "" {
+			return "question withdrawn: " + e.FromValue
+		}
+		return "asks you: " + e.ToValue
+	case taskmodel.FieldOptions:
+		if e.ToValue == "" {
+			return "answer options cleared"
+		}
+		return "answer options: " + e.ToValue
 	}
 	from, to := e.FromValue, e.ToValue
 	if from == "" {
@@ -300,6 +340,7 @@ type TaskFormProps struct {
 	Milestone  string
 	Assignee   string
 	Waiting    string
+	Options    string
 	Folder     string
 	Deps       string
 	Docs       string
@@ -385,6 +426,12 @@ templ TaskForm(p TaskFormProps) {
 				@textField("folder", "Folder", p.Folder, "tasks/DITA-004-camelot-cockpit")
 			</div>
 			@textField("waiting", "Waiting on Dhira", p.Waiting, "the one-line question; empty when nothing waits")
+			@field.Field() {
+				@field.Label(field.LabelProps{For: "options"}) {
+					Answer options (one per line, the recommended first)
+				}
+				@textarea.Textarea(textarea.Props{ID: "options", Name: "options", Value: p.Options, Rows: 3})
+			}
 			<div class="grid gap-4 sm:grid-cols-2">
 				@textField("deps", "Depends on", p.Deps, "card IDs, comma separated")
 				@textField("docs", "Documents", p.Docs, "document IDs, comma separated")

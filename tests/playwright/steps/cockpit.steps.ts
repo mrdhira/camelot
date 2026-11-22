@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect } from "@playwright/test";
 import { createBdd } from "playwright-bdd";
@@ -22,18 +24,100 @@ Then("he sees {string}", async ({ page }, text: string) => {
   await expect(page.getByText(text).first()).toBeVisible();
 });
 
-Then("the card no longer waits for his decision", async ({ page }) => {
-  await expect(page.getByText("Waiting for your decision", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Mark as decided" })).toHaveCount(0);
+Then("he no longer sees {string}", async ({ page }, text: string) => {
+  await expect(page.locator("main").getByText(text, { exact: true })).toHaveCount(0);
+});
+
+Then("the first heading is {string}", async ({ page }, name: string) => {
+  await expect(page.locator("main h1").first()).toHaveText(name);
+});
+
+Then("the updates list {string} first", async ({ page }, id: string) => {
+  await expect(page.getByRole("list", { name: "Updates, newest first" }).getByRole("listitem").first()).toContainText(id);
+});
+
+When("he answers {string} for {string}", async ({ page }, answer: string, id: string) => {
+  await page.getByRole("group", { name: `Answer for ${id}` }).getByRole("button", { name: answer, exact: true }).click();
+  await page.waitForLoadState("load");
+});
+
+When("he writes the answer {string} for {string}", async ({ page }, answer: string, id: string) => {
+  const group = page.getByRole("group", { name: `Answer for ${id}` });
+  await group.getByLabel(`Your answer to ${id}`).fill(answer);
+  await group.getByLabel(`Your answer to ${id}`).press("Enter");
+  await page.waitForLoadState("load");
+});
+
+When("he approves the document {string}", async ({ page }, id: string) => {
+  const card = page.locator("#decisions [data-slot=card]").filter({ hasText: id });
+  await card.getByRole("button", { name: "Approve", exact: true }).click();
+  await page.waitForLoadState("load");
+});
+
+When("he opens the stat {string}", async ({ page }, label: string) => {
+  await page.getByRole("link", { name: label, exact: true }).click();
+});
+
+When("he opens card {string} in the panel", async ({ page }, id: string) => {
+  await page.locator(`[data-card="${id}"] a[data-panel]`).click();
+});
+
+Then("the panel shows {string}", async ({ page }, text: string) => {
+  await expect(page.locator("[data-panel-body]")).toContainText(text);
+});
+
+When("the agent {string} moves {string} to {string}", async ({}, actor: string, id: string, status: string) => {
+  const root = path.resolve(__dirname, "..");
+  execFileSync(path.resolve(root, "../../bin/camelot"), ["--log-level", "warn", "task", "move", "--id", id, "--status", status], {
+    env: { ...process.env, CAMELOT_VAULT: path.join(root, ".vault"), CAMELOT_ACTOR: actor },
+  });
+});
+
+Then("card {string} appears in the column {string} without a reload", async ({ page }, id: string, column: string) => {
+  await page.evaluate(() => ((window as any).__noReload = true));
+  await expect(page.locator(`[data-column="${column}"] [data-card="${id}"]`)).toBeVisible({ timeout: 20_000 });
+  expect(await page.evaluate(() => (window as any).__noReload)).toBe(true);
+  await expect(page.locator(`[data-card="${id}"]`)).toHaveClass(/is-fresh/);
+});
+
+When("he presses Command-K and types {string}", async ({ page }, text: string) => {
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByRole("combobox", { name: "Search cards, documents and pages" })).toBeFocused();
+  await page.keyboard.type(text);
+});
+
+When("he types {string} into {string} and clicks away", async ({ page }, text: string, label: string) => {
+  await page.getByLabel(label, { exact: true }).fill(text);
+  await page.locator("main h1").click();
+});
+
+Then("after the next refresh {string} still holds {string}", async ({ page }, label: string, text: string) => {
+  await page.waitForTimeout(12_000);
+  await expect(page.getByLabel(label, { exact: true })).toHaveValue(text);
+});
+
+When("he presses Enter", async ({ page }) => {
+  await page.keyboard.press("Enter");
+});
+
+Then("the contents list {string} and {string}", async ({ page }, a: string, b: string) => {
+  const toc = page.getByRole("navigation", { name: "On this page" });
+  await expect(toc.getByRole("link", { name: a })).toBeVisible();
+  await expect(toc.getByRole("link", { name: b })).toBeVisible();
+});
+
+When("he chooses {string} as another stage", async ({ page }, status: string) => {
+  await page.getByText("Another stage").click();
+  await page.getByLabel("New status").selectOption({ label: status });
+  await page.getByRole("button", { name: "Move", exact: true }).click();
 });
 
 Then("he sees the document {string} waiting for review", async ({ page }, id: string) => {
-  const waiting = page.getByRole("region", { name: "Waiting for your decision" });
-  await expect(waiting.getByRole("link", { name: new RegExp(id) })).toBeVisible();
+  await expect(page.locator("#decisions").getByRole("link", { name: new RegExp(id) })).toBeVisible();
 });
 
 Then("the stat {string} shows {string}", async ({ page }, label: string, value: string) => {
-  const tile = page.locator("div[title]").filter({ has: page.getByText(label, { exact: true }) });
+  const tile = page.getByRole("region", { name: "Numbers" }).locator("div.relative").filter({ has: page.getByRole("link", { name: label, exact: true }) });
   await expect(tile.getByText(value, { exact: true })).toBeVisible();
 });
 
@@ -50,6 +134,7 @@ Then("the history of {string} shows {string} by {string}", async ({ page }, id: 
 
 When("he drags card {string} to the column {string}", async ({ page }, id: string, column: string) => {
   await page.locator(`[data-card="${id}"]`).dragTo(page.locator(`[data-column="${column}"]`));
+  await page.waitForLoadState("load");
   await page.waitForURL("**/board**");
 });
 
@@ -57,14 +142,8 @@ Then("card {string} is in the column {string}", async ({ page }, id: string, col
   await expect(page.locator(`[data-column="${column}"] [data-card="${id}"]`)).toBeVisible();
 });
 
-When("he chooses {string} as the new status and presses {string}", async ({ page }, status: string, button: string) => {
-  await page.getByLabel("New status").selectOption({ label: status });
-  await page.getByRole("button", { name: button, exact: true }).click();
-});
-
 Then("the card shows the status {string}", async ({ page }, status: string) => {
   await expect(page.locator("main").getByText(status, { exact: true }).first()).toBeVisible();
-  await expect(page.getByLabel("New status")).toHaveValue(/.+/);
   await expect(page.getByLabel("New status").locator("option:checked")).toHaveText(status);
 });
 

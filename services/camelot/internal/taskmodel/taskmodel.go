@@ -216,6 +216,7 @@ type Card struct {
 	Status      Status    `json:"status"`
 	Assignee    string    `json:"assignee"`
 	Waiting     string    `json:"waiting"`
+	Options     []string  `json:"waiting_options"`
 	Folder      string    `json:"folder"`
 	Description string    `json:"description,omitempty"`
 	Deps        []string  `json:"deps"`
@@ -235,6 +236,8 @@ const (
 	FieldMilestone   = "milestone"
 	FieldAssignee    = "assignee"
 	FieldWaiting     = "waiting"
+	FieldOptions     = "waiting_options"
+	FieldDecision    = "decision"
 	FieldFolder      = "folder"
 	FieldDescription = "description"
 	FieldDeps        = "deps"
@@ -283,9 +286,10 @@ type CardFilter struct {
 
 // EventFilter narrows an event list; zero fields match everything.
 type EventFilter struct {
-	CardID string
-	Since  time.Time
-	Limit  int
+	CardID  string
+	Since   time.Time
+	AfterID int64
+	Limit   int
 }
 
 // CreateRequest creates a card. ID or Prefix: with only Prefix the next
@@ -300,6 +304,7 @@ type CreateRequest struct {
 	Status      string
 	Assignee    string
 	Waiting     string
+	Options     []string
 	Folder      string
 	Description string
 	Deps        []string
@@ -320,6 +325,7 @@ type UpdateRequest struct {
 	Status      *string
 	Assignee    *string
 	Waiting     *string
+	Options     *[]string
 	Folder      *string
 	Description *string
 	Deps        *[]string
@@ -327,6 +333,36 @@ type UpdateRequest struct {
 	Actor       string
 	Note        string
 	UpdatedAt   time.Time
+}
+
+// AnswerRequest answers the question waiting on a card: the answer is
+// recorded as a decision event and the question and its options clear.
+type AnswerRequest struct {
+	ID        string
+	Answer    string
+	Actor     string
+	UpdatedAt time.Time
+}
+
+// MaxOptions bounds the answer options of a question.
+const MaxOptions = 6
+
+// ParseOptions reads a question's answer options: up to MaxOptions one-line, distinct, non-empty items.
+func ParseOptions(raw []string) ([]string, error) {
+	out := []string{}
+	for _, o := range raw {
+		v, err := ParseOneLine("an option", o)
+		if err != nil {
+			return nil, err
+		}
+		if v != "" && !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	if len(out) > MaxOptions {
+		return nil, fmt.Errorf("%w: at most %d options", ErrInvalidField, MaxOptions)
+	}
+	return out, nil
 }
 
 // DeleteRequest deletes one card; its events stay.
@@ -404,6 +440,7 @@ var (
 	ErrInvalidLink     = errors.New("invalid link")
 	ErrNothingToChange = errors.New("nothing to change")
 	ErrFolderMissing   = errors.New("card folder does not exist")
+	ErrNothingWaiting  = errors.New("no question waits on this card")
 	ErrFileNotFound    = errors.New("no such file in the card folder")
 )
 

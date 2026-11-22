@@ -11,7 +11,7 @@ GO_FILES := ./...
 # $(SERVICE)/src/.shadcn-templ (gitignored): a link to the module and its
 # style-nova.css cut to the components the pages use (CSS_KEEP).
 TAILWIND  := v4.3.3
-CSS_KEEP  := |Alert|Badge|Button|Card|Empty|Field|Input|Label|Native Select|Progress|Table|Textarea|
+CSS_KEEP  := |Alert|Badge|Button|Card|Dialog|Empty|Field|Input|Label|Native Select|Progress|Sheet|Table|Textarea|Tooltip|
 CSS_OUT   := $(SERVICE)/src/assets/css/app.css
 
 # Third-party frontend files committed in src/assets, each pinned by sha256.

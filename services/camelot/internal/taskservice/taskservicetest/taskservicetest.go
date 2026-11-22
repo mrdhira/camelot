@@ -14,6 +14,8 @@ import (
 
 	"github.com/mrdhira/camelot/services/camelot/internal/docrepository"
 	"github.com/mrdhira/camelot/services/camelot/internal/docservice"
+	"github.com/mrdhira/camelot/services/camelot/internal/feedrepository"
+	"github.com/mrdhira/camelot/services/camelot/internal/feedservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/pkg/sqlitedb"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskrepository"
@@ -26,7 +28,7 @@ const DocRoot = "docs"
 // Docs are the documents the harness's vault holds: PRD001 serves BRD001.
 var Docs = map[string]string{
 	"docs/brd/BRD001-business.md": "---\nid: BRD001\ntype: brd\ntitle: Business case\nstatus: approved\nowner: Dhira\nupdated: 2026-11-01\n---\n# Business case\n",
-	"docs/prd/PRD001-product.md":  "---\nid: PRD001\ntype: prd\ntitle: \"Product: links\"\nstatus: draft\nowner: Dhira\nupdated: 2026-11-02\nserves: [BRD001]\n---\n# Product\n\n| a | b |\n|---|---|\n| 1 | 2 |\n",
+	"docs/prd/PRD001-product.md":  "---\nid: PRD001\ntype: prd\ntitle: \"Product: links\"\nstatus: draft\nowner: Dhira\nupdated: 2026-11-02\nserves: [BRD001]\n---\n# Product\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n## Goals\n\nFewer clicks.\n",
 	"docs/notes.md":               "# Not a document: no frontmatter\n",
 }
 
@@ -36,6 +38,7 @@ type Harness struct {
 	Repo  taskrepository.Repository
 	Tasks taskservice.Service
 	Docs  docservice.Service
+	Feed  feedservice.Service
 }
 
 // New returns a harness on an in-memory database and a temporary vault holding Docs.
@@ -46,8 +49,10 @@ func New(t testing.TB) *Harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := sqlitedb.Migrate(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), db, taskrepository.Migrations); err != nil {
-		t.Fatal(err)
+	for _, set := range []sqlitedb.MigrationSet{taskrepository.Migrations, docrepository.Migrations, feedrepository.Migrations} {
+		if err := sqlitedb.Migrate(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), db, set); err != nil {
+			t.Fatal(err)
+		}
 	}
 	vault := t.TempDir()
 	for name, content := range Docs {
@@ -59,9 +64,10 @@ func New(t testing.TB) *Harness {
 			t.Fatal(err)
 		}
 	}
-	docSvc := docservice.New(docservice.Config{}, docrepository.NewMarkdown(vault, []string{DocRoot}))
+	docSvc := docservice.New(docservice.Config{}, docrepository.NewMarkdown(vault, []string{DocRoot}), docrepository.NewSQLite(db))
 	repo := taskrepository.NewSQLite(db)
-	return &Harness{Vault: vault, Repo: repo, Tasks: taskservice.New(repo, taskrepository.NewFolders(vault), docSvc), Docs: docSvc}
+	tasks := taskservice.New(repo, taskrepository.NewFolders(vault), docSvc)
+	return &Harness{Vault: vault, Repo: repo, Tasks: tasks, Docs: docSvc, Feed: feedservice.New(feedrepository.NewSQLite(db), tasks, docSvc)}
 }
 
 // Card stores a card with the given history straight through the

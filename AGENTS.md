@@ -16,12 +16,14 @@ services/camelot/                   # one binary
   config/                           # flags, each also CAMELOT_<NAME>: vault, db, doc-roots, listen (loopback only unless behind-proxy), hosts (the Host allow-list), behind-proxy, actor, time-zone, log-level
   internal/
     taskmodel/ taskrepository/{repository.go, sqlite/ (+ migrations/)} taskservice/ (+ taskservicetest/)   # cards, links, history events (SQLite, ADR-001)
-    docmodel/  docrepository/{repository.go, markdown/}  docservice/                                     # documents: Markdown files with frontmatter, read through os.Root
+    docmodel/  docrepository/{repository.go, markdown/, sqlite/ (+ migrations/)}  docservice/              # documents: Markdown files with frontmatter, read through os.Root; their history (snapshots + events, compare-and-set Sync every 30 s in serve, first sync a silent baseline)
+    feedmodel/ feedrepository/ feedservice/  # "what's new": card and document events after the seen marker (event IDs, never clocks); the change stamp live.js polls
+    searchmodel/ searchservice/     # cards and documents for the ⌘K palette; Unicode-safe snippets
     insightmodel/ insightservice/   # flow measures, waiting, blocked, stale, document progress and gaps, data-quality check
     cockpithandler/                 # the web UI: server.go (hardening), handler.go (routes and pages)
     mcphandler/                     # MCP over stdio (2025-11-25 initialize and 2026-07-28 server/discover)
     pkg/                            # no app knowledge: frontmatter, markdown (goldmark, safe mode), sqlitedb, taskboard (legacy TASK.md parser)
-  src/app/                          # templ pages (one package: layout, cockpit, board, task, insights, docs) + helpers.go
+  src/app/                          # templ pages (one package: layout with the ⌘K palette and the side-panel sheet, cockpit, board, task + TaskPanel, insights, docs, parts) + helpers.go, scripts.go (shadcn component scripts in bundle order), shell.go (header facts)
   src/assets/                       # assets.go (embedded, hashed names), css/{tailwind.css, app.css (make css, committed)}, fonts/, vendor/, js/board.js
   Dockerfile                        # scratch runtime, non-root; build context = repo root (.dockerignore allow-list)
 deployment/local/                   # docker-compose.yaml (project camelot-local: camelot + Caddy on 127.0.0.1:80) and Caddyfile (http://camelot.localhost only)
@@ -39,7 +41,7 @@ docs/adr/
 4. **Facts, not guesses.** Every number the UI or `insights` shows states its formula and sample size; an unknown value is shown as unknown (an imported card's age), never estimated. Refusals name the allowed values.
 5. **One kernel per database.** SQLite's locks and WAL memory do not cross the Colima VM boundary: while the container serves, it owns the database (`server.lock`) and every other host's process refuses it; agents use `scripts/camelot`. Never open the vault's database from the Mac and the container at once.
 6. **Files the app reads or writes** go through `os.Root` on the vault: no path leaves it, symlinks included. Document writes change only the frontmatter keys asked for, through a temporary file and a rename.
-7. **UI.** templ only; never hand-edit `*_templ.go`. Scripts and styles from our origin only (CSP `script-src 'self'`; `style-src-attr 'unsafe-inline'` for the shipped components' style attributes). `templ.Raw` only for goldmark output (raw HTML omitted, dangerous links dropped); `make check` greps for any other use. Every page works without JavaScript; drag-and-drop is an enhancement over the card page's move form. English copy inline (single user).
+7. **UI.** Every page works without JavaScript; live.js never swaps a page while a field has focus or an unsaved value, a details block was toggled, a drag runs or a dialog is open. Stage colours always sit beside the stage's label. templ only; never hand-edit `*_templ.go`. Scripts and styles from our origin only (CSP `script-src 'self'`; `style-src-attr 'unsafe-inline'` for the shipped components' style attributes). `templ.Raw` only for goldmark output (raw HTML omitted, dangerous links dropped); `make check` greps for any other use. Every page works without JavaScript; drag-and-drop is an enhancement over the card page's move form. English copy inline (single user).
 8. **Agents' contract.** CLI values are flags only (no positional arguments); per-card environment variables are refused; output is JSON. MCP tools mirror the CLI; tool errors are results with `isError`, protocol errors are JSON-RPC errors. The browser's actor is always `dhira`; agents pass their own name.
 9. **Secrets and personal data** never in git, logs or fixtures. `testdata/` is fictional. The database lives in the vault (`.camelot/`), never in this repo.
 10. **Simplicity.** Minimum code for the task; match the neighbours; one-line godoc on exported identifiers; comments state contracts, never history.

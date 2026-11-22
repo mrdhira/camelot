@@ -5,6 +5,7 @@ package app
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -122,4 +123,63 @@ func percentOf(v, maxV int) float64 {
 		return 0
 	}
 	return float64(v) * 100 / float64(maxV)
+}
+
+// stageDots are the stages' colour classes (always shown with the stage's label).
+var stageDots = map[taskmodel.Status]string{
+	taskmodel.StatusBacklog: "bg-stage-backlog",
+	taskmodel.StatusTodo:    "bg-stage-todo",
+	taskmodel.StatusPlan:    "bg-stage-plan",
+	taskmodel.StatusWIP:     "bg-stage-wip",
+	taskmodel.StatusQA:      "bg-stage-qa",
+	taskmodel.StatusReview:  "bg-stage-review",
+	taskmodel.StatusDone:    "bg-stage-done",
+}
+
+// stageDot is a stage's colour class.
+func stageDot(s taskmodel.Status) string { return stageDots[s] }
+
+// nextStatus is the stage after s; ok false at Done.
+func nextStatus(s taskmodel.Status) (taskmodel.Status, bool) {
+	i := slices.Index(taskmodel.Statuses, s)
+	if i < 0 || i+1 >= len(taskmodel.Statuses) {
+		return "", false
+	}
+	return taskmodel.Statuses[i+1], true
+}
+
+// prevStatus is the stage before s; ok false at Backlog.
+func prevStatus(s taskmodel.Status) (taskmodel.Status, bool) {
+	i := slices.Index(taskmodel.Statuses, s)
+	if i <= 0 {
+		return "", false
+	}
+	return taskmodel.Statuses[i-1], true
+}
+
+// docEventText says what a document event changed.
+func docEventText(e *docmodel.Event) string {
+	switch e.Kind {
+	case docmodel.KindCreated:
+		return "created as " + docmodel.Status(e.ToValue).Label()
+	case docmodel.KindStatus:
+		return "status " + docmodel.Status(e.FromValue).Label() + " → " + docmodel.Status(e.ToValue).Label()
+	case docmodel.KindRemoved:
+		return "removed (" + e.FromValue + ")"
+	}
+	if saved, err := time.Parse(time.RFC3339, e.ToValue); err == nil {
+		return "file edited, saved " + When(saved)
+	}
+	return "file edited"
+}
+
+// actorText names who made a change; a file edited outside Camelot has no known author.
+func actorText(actor string) string {
+	switch actor {
+	case docmodel.ActorFile:
+		return "edited outside Camelot"
+	case "dhira":
+		return "you"
+	}
+	return actor
 }

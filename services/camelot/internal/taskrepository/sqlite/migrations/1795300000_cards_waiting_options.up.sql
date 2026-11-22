@@ -1,0 +1,1 @@
+ALTER TABLE cards ADD COLUMN waiting_options TEXT NOT NULL DEFAULT '[]';

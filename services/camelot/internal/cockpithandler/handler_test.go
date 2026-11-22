@@ -15,6 +15,7 @@ import (
 
 	"github.com/mrdhira/camelot/services/camelot/internal/cockpithandler"
 	"github.com/mrdhira/camelot/services/camelot/internal/insightservice"
+	"github.com/mrdhira/camelot/services/camelot/internal/searchservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskservice/taskservicetest"
 	"github.com/mrdhira/camelot/services/camelot/src/app"
@@ -47,7 +48,7 @@ func newSite(t *testing.T) *site {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := cockpithandler.NewServer("127.0.0.1:7700", []string{"127.0.0.1:7700", "camelot.localhost"}, logger)
 	cockpithandler.New(cockpithandler.Config{DocRoots: []string{taskservicetest.DocRoot}}, logger, h.Tasks, h.Docs,
-		insightservice.New(h.Tasks, h.Docs)).Routes(srv)
+		insightservice.New(h.Tasks, h.Docs), h.Feed, searchservice.New(h.Tasks, h.Docs)).Routes(srv)
 	return &site{h: h, srv: srv}
 }
 
@@ -79,7 +80,16 @@ func TestPages(t *testing.T) {
 		status   int
 		contains string
 	}{
-		{name: "cockpit", path: "/", status: http.StatusOK, contains: "Waiting for your decision"},
+		{name: "cockpit leads with what's new", path: "/", status: http.StatusOK, contains: `id="whats-new"`},
+		{name: "cockpit has the decision inbox", path: "/", status: http.StatusOK, contains: "Waiting for your decision"},
+		{name: "every page has the unread count and the change stamp", path: "/board", status: http.StatusOK, contains: `data-stamp="c`},
+		{name: "board filtered to a stage", path: "/board?status=backlog", status: http.StatusOK, contains: "Showing cards in Backlog"},
+		{name: "board filtered to blocked cards", path: "/board?blocked=1", status: http.StatusOK, contains: "Showing blocked cards"},
+		{name: "a card's side panel is a fragment", path: "/tasks/DITA-001/panel", status: http.StatusOK, contains: `data-panel-card="DITA-001"`},
+		{name: "the change stamp", path: "/changes/stamp", status: http.StatusOK, contains: "c"},
+		{name: "search finds a card by title", path: "/search?q=seed", status: http.StatusOK, contains: `"id":"DITA-001"`},
+		{name: "search finds a document by its text", path: "/search?q=product", status: http.StatusOK, contains: `"id":"PRD001"`},
+		{name: "a document has its table of contents", path: "/docs/PRD001", status: http.StatusOK, contains: "On this page"},
 		{name: "board", path: "/board", status: http.StatusOK, contains: `data-card="DITA-001"`},
 		{name: "board filtered to milestones", path: "/board?type=milestone", status: http.StatusOK, contains: `data-card="M1"`},
 		{name: "insights", path: "/insights", status: http.StatusOK, contains: "Throughput per week"},
@@ -204,6 +214,16 @@ func TestWrites(t *testing.T) {
 			}},
 		},
 		{
+			name: "a Referer from another host never becomes the redirect",
+			path: "/tasks/DITA-001/move",
+			form: func(s *site) url.Values {
+				got, _ := s.h.Tasks.Get(context.Background(), &taskmodel.GetRequest{ID: "DITA-001"})
+				return url.Values{"status": {"todo"}, "updated_at": {app.ISO(got.Card.UpdatedAt)}, "return": {"board"}}
+			},
+			header:   map[string]string{"Referer": "http://evil.example/board?x=1"},
+			expected: expected{status: http.StatusSeeOther, location: "/board"},
+		},
+		{
 			name: "a stale move is refused with the reason",
 			path: "/tasks/DITA-001/move",
 			form: func(*site) url.Values {
@@ -237,6 +257,47 @@ func TestWrites(t *testing.T) {
 			path:     "/docs/PRD001/status",
 			form:     func(*site) url.Values { return url.Values{"status": {"in-review"}} },
 			expected: expected{status: http.StatusSeeOther, location: "/docs/PRD001"},
+		},
+		{
+			name: "an answer from the cockpit records the decision and returns there",
+			path: "/tasks/DITA-001/answer",
+			form: func(s *site) url.Values {
+				q := "Pick A or B?"
+				if _, err := s.h.Tasks.Update(context.Background(), &taskmodel.UpdateRequest{ID: "DITA-001", Waiting: &q, Options: &[]string{"A", "B"}, Actor: "dita"}); err != nil {
+					t.Fatal(err)
+				}
+				return url.Values{"answer": {"B"}}
+			},
+			header: map[string]string{"Referer": "http://127.0.0.1:7700/"},
+			expected: expected{status: http.StatusSeeOther, location: "/", check: func(t *testing.T, s *site) {
+				got, err := s.h.Tasks.Get(context.Background(), &taskmodel.GetRequest{ID: "DITA-001"})
+				if err != nil || got.Card.Waiting != "" || got.Events[0].Field != taskmodel.FieldDecision || got.Events[0].ToValue != "B" || got.Events[0].Actor != cockpithandler.Actor {
+					t.Errorf("after the answer: %+v, %v", got.Events[0], err)
+				}
+			}},
+		},
+		{
+			name:     "an answer where nothing waits comes back with the reason",
+			path:     "/tasks/DITA-001/answer",
+			form:     func(*site) url.Values { return url.Values{"custom": {"yes"}} },
+			expected: expected{status: http.StatusUnprocessableEntity, contains: "no question waits"},
+		},
+		{
+			name: "mark all seen empties the feed",
+			path: "/feed/seen",
+			form: func(s *site) url.Values {
+				stamp, err := s.h.Feed.Stamp(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				return url.Values{"stamp": {stamp.String()}}
+			},
+			expected: expected{status: http.StatusSeeOther, location: "/", check: func(t *testing.T, s *site) {
+				feed, err := s.h.Feed.Feed(context.Background())
+				if err != nil || len(feed.Items) != 0 {
+					t.Errorf("feed after mark seen = %d items, %v", len(feed.Items), err)
+				}
+			}},
 		},
 		{
 			name:     "an unknown document status",

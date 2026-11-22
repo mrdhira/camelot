@@ -32,8 +32,23 @@ var embedded embed.FS
 // componentScripts maps each shadcn-templ component script the pages load, js/shadcn/<file>, to its file under components/ in
 // the module pinned in go.mod; no other file of the module is served.
 var componentScripts = map[string]string{
-	"js/shadcn/lifecycle.js": "baseui/lifecycle.js",
-	"js/shadcn/progress.js":  "progress/progress.js",
+	"js/shadcn/floating_focus_manager.js": "baseui/floating_focus_manager.js",
+	"js/shadcn/lifecycle.js":              "baseui/lifecycle.js",
+	"js/shadcn/mark_others.js":            "baseui/mark_others.js",
+	"js/shadcn/portal.js":                 "baseui/portal.js",
+	"js/shadcn/scroll_lock.js":            "baseui/scroll_lock.js",
+	"js/shadcn/tabbable.js":               "baseui/tabbable.js",
+	"js/shadcn/use_anchor_positioning.js": "baseui/use_anchor_positioning.js",
+	"js/shadcn/use_click.js":              "baseui/use_click.js",
+	"js/shadcn/use_dismiss.js":            "baseui/use_dismiss.js",
+	"js/shadcn/use_focus.js":              "baseui/use_focus.js",
+	"js/shadcn/use_hover.js":              "baseui/use_hover.js",
+	"js/shadcn/use_transition_status.js":  "baseui/use_transition_status.js",
+	"js/shadcn/dialog.js":                 "dialog/dialog.js",
+	"js/shadcn/floating_ui_core.js":       "floatingui/floating_ui_core.js",
+	"js/shadcn/floating_ui_dom.js":        "floatingui/floating_ui_dom.js",
+	"js/shadcn/progress.js":               "progress/progress.js",
+	"js/shadcn/tooltip.js":                "tooltip/tooltip.js",
 }
 
 // source is where Serve reads a served asset: name in fsys.

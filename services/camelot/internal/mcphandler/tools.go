@@ -51,18 +51,19 @@ var (
 // cardProps are the editable card fields.
 func cardProps() map[string]any {
 	return map[string]any{
-		"title":       str("one-line title"),
-		"type":        str("milestone, feature, task, bug, research, tech-debt, feature-debt, product-debt or security-debt"),
-		"status":      str("backlog, todo, plan, wip, qa, review or done"),
-		"milestone":   str("milestone card ID; empty clears"),
-		"assignee":    str("who works on it: your agent name, or dhira; empty clears"),
-		"waiting":     str("one-line question waiting for Dhira's decision; empty clears"),
-		"folder":      str("card folder under tasks/ holding PLAN.md and REPORT.md; empty clears"),
-		"description": str("Markdown description"),
-		"deps":        strList("card IDs this card waits for (replaces the list)"),
-		"docs":        strList("document IDs this card builds, such as TRD003 (replaces the list)"),
-		"note":        str("why, recorded with the change"),
-		"actor":       str("your agent name (go-engineer, qa-ui-engineer, dita); default from CAMELOT_ACTOR"),
+		"title":           str("one-line title"),
+		"type":            str("milestone, feature, task, bug, research, tech-debt, feature-debt, product-debt or security-debt"),
+		"status":          str("backlog, todo, plan, wip, qa, review or done"),
+		"milestone":       str("milestone card ID; empty clears"),
+		"assignee":        str("who works on it: your agent name, or dhira; empty clears"),
+		"waiting":         str("one-line question waiting for Dhira's decision, with your recommendation; empty clears"),
+		"waiting_options": strList("answer options shown as buttons, the recommended first (at most 6); Dhira's answer comes back as a decision event on the card (get_task)"),
+		"folder":          str("card folder under tasks/ holding PLAN.md and REPORT.md; empty clears"),
+		"description":     str("Markdown description"),
+		"deps":            strList("card IDs this card waits for (replaces the list)"),
+		"docs":            strList("document IDs this card builds, such as TRD003 (replaces the list)"),
+		"note":            str("why, recorded with the change"),
+		"actor":           str("your agent name (go-engineer, qa-ui-engineer, dita); default from CAMELOT_ACTOR"),
 	}
 }
 
@@ -101,6 +102,7 @@ func newTools(config Config, taskSvc taskservice.Service, docSvc docservice.Serv
 		Milestone   *string   `json:"milestone"`
 		Assignee    *string   `json:"assignee"`
 		Waiting     *string   `json:"waiting"`
+		Options     *[]string `json:"waiting_options"`
 		Folder      *string   `json:"folder"`
 		Description *string   `json:"description"`
 		Deps        *[]string `json:"deps"`
@@ -213,6 +215,7 @@ func newTools(config Config, taskSvc taskservice.Service, docSvc docservice.Serv
 					Status:      value(a.Status),
 					Assignee:    value(a.Assignee),
 					Waiting:     value(a.Waiting),
+					Options:     values(a.Options),
 					Folder:      value(a.Folder),
 					Description: value(a.Description),
 					Deps:        values(a.Deps),
@@ -241,6 +244,7 @@ func newTools(config Config, taskSvc taskservice.Service, docSvc docservice.Serv
 					Status:      a.Status,
 					Assignee:    a.Assignee,
 					Waiting:     a.Waiting,
+					Options:     a.Options,
 					Folder:      a.Folder,
 					Description: a.Description,
 					Deps:        a.Deps,
@@ -347,17 +351,18 @@ func newTools(config Config, taskSvc taskservice.Service, docSvc docservice.Serv
 			name:        "set_doc_status",
 			title:       "Set a document's status",
 			description: "Set draft, in-review, approved or superseded in the document file's frontmatter (updated = today). Approved and superseded are Dhira's decisions: set them only on his word.",
-			schema:      object(map[string]any{"id": str("the document ID"), "status": str("draft, in-review, approved or superseded")}, "id", "status"),
+			schema:      object(map[string]any{"id": str("the document ID"), "status": str("draft, in-review, approved or superseded"), "actor": str("your agent name")}, "id", "status"),
 			annotations: writes,
 			run: func(ctx context.Context, args json.RawMessage) (any, error) {
 				var a struct {
 					ID     string `json:"id"`
 					Status string `json:"status"`
+					Actor  string `json:"actor"`
 				}
 				if err := decode(args, &a); err != nil {
 					return nil, err
 				}
-				return docSvc.SetStatus(ctx, &docmodel.SetStatusRequest{ID: a.ID, Status: a.Status})
+				return docSvc.SetStatus(ctx, &docmodel.SetStatusRequest{ID: a.ID, Status: a.Status, Actor: actor(a.Actor)})
 			},
 		},
 		{

@@ -7,6 +7,9 @@ package markdown
 import (
 	"bytes"
 	"fmt"
+	stdhtml "html"
+	"regexp"
+	"strings"
 
 	"github.com/yuin/goldmark/v2/extension"
 	"github.com/yuin/goldmark/v2/parser"
@@ -25,4 +28,30 @@ func Render(source []byte) (HTML, error) {
 		return "", fmt.Errorf("markdown: render: %w", err)
 	}
 	return HTML(buf.String()), nil
+}
+
+// Heading is a section heading of rendered Markdown, for a table of contents.
+type Heading struct {
+	Level int
+	ID    string
+	Text  string
+}
+
+var (
+	headingTag = regexp.MustCompile(`(?s)<h([23]) id="([^"]+)">(.*?)</h[23]>`)
+	anyTag     = regexp.MustCompile(`<[^>]*>`)
+)
+
+// Headings returns the level-2 and level-3 headings of html, in order.
+func Headings(html HTML) []Heading {
+	var out []Heading
+	for _, m := range headingTag.FindAllStringSubmatch(string(html), -1) {
+		level := 2
+		if m[1] == "3" {
+			level = 3
+		}
+		text := strings.TrimSpace(stdhtml.UnescapeString(anyTag.ReplaceAllString(m[3], "")))
+		out = append(out, Heading{Level: level, ID: stdhtml.UnescapeString(m[2]), Text: text})
+	}
+	return out
 }

@@ -22,6 +22,8 @@ type Service interface {
 	Create(ctx context.Context, request *taskmodel.CreateRequest) (*taskmodel.Card, error)
 	// Update changes the set fields, one event per changed field.
 	Update(ctx context.Context, request *taskmodel.UpdateRequest) (*taskmodel.Card, error)
+	// Answer records Dhira's decision on the waiting question and clears it.
+	Answer(ctx context.Context, request *taskmodel.AnswerRequest) (*taskmodel.Card, error)
 	// Delete removes a card nothing depends on and no card belongs to.
 	Delete(ctx context.Context, request *taskmodel.DeleteRequest) error
 	// Get returns a card with its links and history.
@@ -30,6 +32,8 @@ type Service interface {
 	List(ctx context.Context, request *taskmodel.ListRequest) ([]*taskmodel.Card, error)
 	// Events returns events matching the filter, newest first.
 	Events(ctx context.Context, filter *taskmodel.EventFilter) ([]*taskmodel.Event, error)
+	// EventMaxID returns the highest card event ID; 0 when none.
+	EventMaxID(ctx context.Context) (int64, error)
 	// Files lists the Markdown files of a card's folder (none without a folder).
 	Files(ctx context.Context, request *taskmodel.FilesRequest) ([]string, error)
 	// File reads one Markdown file of a card's folder.
@@ -126,6 +130,12 @@ func (s *service) Create(ctx context.Context, request *taskmodel.CreateRequest) 
 	}
 	if card.Waiting, err = taskmodel.ParseOneLine("waiting", request.Waiting); err != nil {
 		return nil, err
+	}
+	if card.Options, err = taskmodel.ParseOptions(request.Options); err != nil {
+		return nil, err
+	}
+	if card.Waiting == "" && len(card.Options) > 0 {
+		return nil, fmt.Errorf("%w: options need a waiting question", taskmodel.ErrInvalidField)
 	}
 	if card.Folder, err = parseFolder(request.Folder); err != nil {
 		return nil, err
@@ -224,7 +234,19 @@ func (s *service) Update(ctx context.Context, request *taskmodel.UpdateRequest) 
 			return nil, err
 		}
 		record(taskmodel.FieldWaiting, current.Waiting, next.Waiting)
+		if next.Waiting != current.Waiting && request.Options == nil {
+			next.Options = nil
+		}
 	}
+	if request.Options != nil {
+		if next.Options, err = taskmodel.ParseOptions(*request.Options); err != nil {
+			return nil, err
+		}
+	}
+	if next.Waiting == "" && len(next.Options) > 0 {
+		return nil, fmt.Errorf("%w: options need a waiting question", taskmodel.ErrInvalidField)
+	}
+	record(taskmodel.FieldOptions, strings.Join(current.Options, " | "), strings.Join(next.Options, " | "))
 	if request.Folder != nil {
 		if next.Folder, err = parseFolder(*request.Folder); err != nil {
 			return nil, err
@@ -273,6 +295,44 @@ func (s *service) Update(ctx context.Context, request *taskmodel.UpdateRequest) 
 	}
 	if updated == nil {
 		return nil, fmt.Errorf("%w (%s)", taskmodel.ErrStale, id)
+	}
+	return updated, nil
+}
+
+// Answer records the decision (question → answer) and clears the question
+// and its options in one write; refused when nothing waits or the read is stale.
+func (s *service) Answer(ctx context.Context, request *taskmodel.AnswerRequest) (*taskmodel.Card, error) {
+	actor, err := parseActor(request.Actor)
+	if err != nil {
+		return nil, err
+	}
+	answer, err := taskmodel.ParseDescription(request.Answer)
+	if err != nil {
+		return nil, err
+	}
+	if answer == "" {
+		return nil, fmt.Errorf("%w: the answer is empty", taskmodel.ErrInvalidField)
+	}
+	current, err := s.card(ctx, request.ID)
+	if err != nil {
+		return nil, err
+	}
+	if current.Waiting == "" {
+		return nil, fmt.Errorf("%w (%s)", taskmodel.ErrNothingWaiting, current.ID)
+	}
+	if !request.UpdatedAt.IsZero() && !request.UpdatedAt.Equal(current.UpdatedAt) {
+		return nil, fmt.Errorf("%w (%s)", taskmodel.ErrStale, current.ID)
+	}
+	now := time.Now().UTC()
+	next := *current
+	next.Waiting, next.Options, next.UpdatedAt = "", nil, now
+	event := taskmodel.NewEvent(current.ID, actor, taskmodel.FieldDecision, current.Waiting, answer, "", now)
+	updated, err := s.taskRepo.CardUpdate(ctx, &next, current.UpdatedAt, []*taskmodel.Event{event})
+	if err != nil {
+		return nil, err
+	}
+	if updated == nil {
+		return nil, fmt.Errorf("%w (%s)", taskmodel.ErrStale, current.ID)
 	}
 	return updated, nil
 }
@@ -371,6 +431,11 @@ func (s *service) List(ctx context.Context, request *taskmodel.ListRequest) ([]*
 // Events returns the matching events.
 func (s *service) Events(ctx context.Context, filter *taskmodel.EventFilter) ([]*taskmodel.Event, error) {
 	return s.taskRepo.CardEventSelect(ctx, filter)
+}
+
+// EventMaxID returns the highest card event ID.
+func (s *service) EventMaxID(ctx context.Context) (int64, error) {
+	return s.taskRepo.CardEventMaxID(ctx)
 }
 
 // newID returns the requested ID, or the next number after the highest

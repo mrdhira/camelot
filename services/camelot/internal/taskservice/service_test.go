@@ -244,3 +244,82 @@ func TestList(t *testing.T) {
 		})
 	}
 }
+
+func TestAnswer(t *testing.T) {
+	type expected struct {
+		err      error
+		decision string
+	}
+	tests := []struct {
+		name     string
+		waiting  bool
+		input    *taskmodel.AnswerRequest
+		expected expected
+	}{
+		{name: "an answer records the decision and clears the question and its options", waiting: true, input: &taskmodel.AnswerRequest{ID: "DITA-001", Answer: "B: cheaper", Actor: "dhira"}, expected: expected{decision: "Pick A or B? → B: cheaper"}},
+		{name: "nothing waits", input: &taskmodel.AnswerRequest{ID: "DITA-001", Answer: "B", Actor: "dhira"}, expected: expected{err: taskmodel.ErrNothingWaiting}},
+		{name: "an empty answer", waiting: true, input: &taskmodel.AnswerRequest{ID: "DITA-001", Answer: "  ", Actor: "dhira"}, expected: expected{err: taskmodel.ErrInvalidField}},
+		{name: "a stale read", waiting: true, input: &taskmodel.AnswerRequest{ID: "DITA-001", Answer: "B", Actor: "dhira", UpdatedAt: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)}, expected: expected{err: taskmodel.ErrStale}},
+		{name: "a missing card", input: &taskmodel.AnswerRequest{ID: "NOPE-1", Answer: "B", Actor: "dhira"}, expected: expected{err: taskmodel.ErrNotFound}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := taskservicetest.New(t)
+			ctx := context.Background()
+			h.Seed(t)
+			if tt.waiting {
+				if _, err := h.Tasks.Update(ctx, &taskmodel.UpdateRequest{ID: "DITA-001", Waiting: ptr("Pick A or B?"), Options: &[]string{"A", "B: cheaper"}, Actor: "dita"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			card, err := h.Tasks.Answer(ctx, tt.input)
+			if !errors.Is(err, tt.expected.err) {
+				t.Fatalf("Answer() error = %v, want %v", err, tt.expected.err)
+			}
+			if tt.expected.err != nil {
+				return
+			}
+			if card.Waiting != "" || len(card.Options) != 0 {
+				t.Errorf("after the answer waiting = %q, options = %v; want both cleared", card.Waiting, card.Options)
+			}
+			got, err := h.Tasks.Get(ctx, &taskmodel.GetRequest{ID: "DITA-001"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			e := got.Events[0]
+			if e.Field != taskmodel.FieldDecision || e.FromValue+" → "+e.ToValue != tt.expected.decision || e.Actor != "dhira" {
+				t.Errorf("newest event = %+v, want the decision %q by dhira", e, tt.expected.decision)
+			}
+		})
+	}
+}
+
+func TestOptions(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    *taskmodel.UpdateRequest
+		expected []string
+		err      error
+	}{
+		{name: "options with a question, deduplicated", input: &taskmodel.UpdateRequest{ID: "DITA-001", Waiting: ptr("Which?"), Options: &[]string{"A", "B", "A"}, Actor: "dita"}, expected: []string{"A", "B"}},
+		{name: "a new question without options drops the old question's options", input: &taskmodel.UpdateRequest{ID: "DITA-001", Waiting: ptr("Which database?"), Actor: "dita"}, expected: []string{}},
+		{name: "options without a question", input: &taskmodel.UpdateRequest{ID: "DITA-001", Waiting: ptr(""), Options: &[]string{"A"}, Actor: "dita"}, err: taskmodel.ErrInvalidField},
+		{name: "too many options", input: &taskmodel.UpdateRequest{ID: "DITA-001", Waiting: ptr("Which?"), Options: &[]string{"1", "2", "3", "4", "5", "6", "7"}, Actor: "dita"}, err: taskmodel.ErrInvalidField},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := taskservicetest.New(t)
+			h.Seed(t)
+			if _, err := h.Tasks.Update(context.Background(), &taskmodel.UpdateRequest{ID: "DITA-001", Waiting: ptr("Pick A or B?"), Options: &[]string{"A", "B"}, Actor: "dita"}); err != nil {
+				t.Fatal(err)
+			}
+			card, err := h.Tasks.Update(context.Background(), tt.input)
+			if !errors.Is(err, tt.err) {
+				t.Fatalf("Update() error = %v, want %v", err, tt.err)
+			}
+			if tt.err == nil && len(card.Options)+len(tt.expected) > 0 && !reflect.DeepEqual(card.Options, tt.expected) {
+				t.Errorf("Options = %v, want %v", card.Options, tt.expected)
+			}
+		})
+	}
+}

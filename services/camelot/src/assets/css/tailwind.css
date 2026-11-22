@@ -5,7 +5,13 @@
 
 @source "../../app";
 @source "../js";
-@source "../../.shadcn-templ/module/components/{alert,badge,button,card,empty,field,input,nativeselect,progress,table,textarea}/*.templ";
+@source "../../.shadcn-templ/module/components/{alert,badge,button,card,dialog,empty,field,input,nativeselect,progress,sheet,table,textarea,tooltip}/*.templ";
+
+/* Freshly changed cards after a live refresh (live.js adds .is-fresh). */
+@keyframes fresh {
+  from { box-shadow: 0 0 0 3px var(--series-1); }
+  to { box-shadow: 0 0 0 0 transparent; }
+}
 
 @font-face {
   font-family: "Geist";
@@ -90,15 +96,31 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-/* Chart roles (dataviz reference palette, validated on the white surface). */
+/* Chart roles (dataviz reference palette, validated on the white surface).
+   Stages: one hue each in board order (adjacent pairs validated); always
+   shown beside the stage's label, never alone. */
 :root {
   --series-1: #2a78d6;
   --status-critical: #d03b3b;
   --status-warning: #fab219;
   --status-good: #0ca30c;
+  --stage-backlog: #8a8a85;
+  --stage-todo: #eda100;
+  --stage-plan: #6250d6;
+  --stage-wip: #eb6834;
+  --stage-qa: #2a78d6;
+  --stage-review: #e87ba4;
+  --stage-done: #008300;
 }
 
 @theme inline {
+  --color-stage-backlog: var(--stage-backlog);
+  --color-stage-todo: var(--stage-todo);
+  --color-stage-plan: var(--stage-plan);
+  --color-stage-wip: var(--stage-wip);
+  --color-stage-qa: var(--stage-qa);
+  --color-stage-review: var(--stage-review);
+  --color-stage-done: var(--stage-done);
   --color-series-1: var(--series-1);
   --color-status-critical: var(--status-critical);
   --color-status-warning: var(--status-warning);
@@ -110,6 +132,10 @@
    it wins over the component's own rule. */
 [data-slot="table-container"] {
   overflow: visible;
+}
+
+.is-fresh {
+  animation: fresh 2.5s ease-out;
 }
 
 @layer base {

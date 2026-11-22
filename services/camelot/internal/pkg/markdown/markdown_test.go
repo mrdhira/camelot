@@ -1,6 +1,7 @@
 package markdown_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -50,5 +51,17 @@ func TestRender(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestHeadings(t *testing.T) {
+	html, err := markdown.Render([]byte("# Title\n\n## One & two\n\ntext\n\n### Sub `code`\n\n#### Deep\n\n## Three\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := markdown.Headings(html)
+	want := []markdown.Heading{{Level: 2, ID: "one--two", Text: "One & two"}, {Level: 3, ID: "sub-code", Text: "Sub code"}, {Level: 2, ID: "three", Text: "Three"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Headings() = %+v, want %+v", got, want)
 	}
 }

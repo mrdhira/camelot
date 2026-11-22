@@ -210,8 +210,9 @@ type SummaryAged struct {
 
 // SummaryCard is a card ID with its question.
 type SummaryCard struct {
-	ID      string `json:"id"`
-	Waiting string `json:"waiting"`
+	ID      string   `json:"id"`
+	Waiting string   `json:"waiting"`
+	Options []string `json:"options"`
 }
 
 // Days returns d in days, rounded to one decimal.
@@ -265,7 +266,7 @@ func (o *Overview) Summary() Summary {
 		s.InFlight = append(s.InFlight, aged)
 	}
 	for _, c := range o.Waiting {
-		s.Waiting = append(s.Waiting, SummaryCard{ID: c.ID, Waiting: c.Waiting})
+		s.Waiting = append(s.Waiting, SummaryCard{ID: c.ID, Waiting: c.Waiting, Options: c.Options})
 	}
 	for _, c := range o.InReview {
 		s.InReview = append(s.InReview, c.ID)

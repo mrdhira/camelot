@@ -86,7 +86,7 @@ func docCommand(load func() (*config.Config, error), out, logOut io.Writer) *cli
 					fs.Required("status")
 				},
 				Run: runWith(load, logOut, func(ctx context.Context, a *deps) error {
-					doc, err := a.docs.SetStatus(ctx, &docmodel.SetStatusRequest{ID: id, Status: newStatus})
+					doc, err := a.docs.SetStatus(ctx, &docmodel.SetStatusRequest{ID: id, Status: newStatus, Actor: a.config.Actor})
 					if err != nil {
 						return err
 					}

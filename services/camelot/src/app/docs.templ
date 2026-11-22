@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"github.com/axadrn/shadcn-templ/v2/components/alert"
 	"github.com/axadrn/shadcn-templ/v2/components/badge"
 	"github.com/axadrn/shadcn-templ/v2/components/button"
@@ -33,7 +35,7 @@ type DocsProps struct {
 // and gaps, and every problem found in the files.
 templ Docs(p DocsProps) {
 	{{ o := p.Overview }}
-	@Layout("Documents", NavDocs, "js/shadcn/lifecycle.js", "js/shadcn/progress.js") {
+	@Layout("Documents", NavDocs, Scripts([]Component{ComponentProgress})...) {
 		@PageHeader("Documents", itoa(len(o.Docs))+" documents from "+joinIDs(p.Roots)+" · "+itoa(o.Gaps)+" gaps · "+itoa(len(o.Problems))+" file problems")
 		@Section("By type and status", "a document is a Markdown file under the roots whose frontmatter has a type") {
 			<div class="overflow-x-auto" tabindex="0" role="region" aria-label="Documents by type and status">
@@ -176,6 +178,9 @@ type DocProps struct {
 	Progress insightmodel.DocProgress
 	Cards    []*taskmodel.Card
 	HTML     markdown.HTML
+	TOC      []markdown.Heading
+	Events   []*docmodel.Event
+	Now      time.Time
 	Error    string
 }
 
@@ -183,7 +188,7 @@ type DocProps struct {
 // down, the cards that build it and its rendered text.
 templ Doc(p DocProps) {
 	{{ d := p.Chain.Doc }}
-	@Layout(d.ID+" "+d.Title, NavDocs, "js/shadcn/lifecycle.js", "js/shadcn/progress.js") {
+	@Layout(d.ID+" "+d.Title, NavDocs, Scripts([]Component{ComponentProgress})...) {
 		<div class="grid gap-2">
 			<p class="font-mono text-sm text-muted-foreground">{ d.ID } · { d.Path }</p>
 			@PageHeader(d.Title, d.Type.Label()+" · owner "+d.Owner+" · updated "+d.Updated)
@@ -212,7 +217,19 @@ templ Doc(p DocProps) {
 			<article class="prose-camelot order-2 min-w-0 rounded-xl border p-4 lg:order-1 lg:p-6">
 				@templ.Raw(string(p.HTML))
 			</article>
-			<aside class="order-1 grid min-w-0 content-start gap-6 lg:order-2" aria-label="About this document">
+			<aside class="order-1 grid min-w-0 content-start gap-6 lg:sticky lg:top-20 lg:order-2 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto" aria-label="About this document">
+				if len(p.TOC) > 0 {
+					<nav aria-label="On this page" class="grid gap-1.5 text-sm">
+						<h2 class="text-sm font-semibold">On this page</h2>
+						<ol class="grid gap-1">
+							for _, h := range p.TOC {
+								<li class={ templ.KV("pl-3", h.Level == 3) }>
+									<a href={ templ.SafeURL("#" + h.ID) } class="text-muted-foreground hover:text-foreground hover:underline">{ h.Text }</a>
+								</li>
+							}
+						</ol>
+					</nav>
+				}
 				@card.Card() {
 					@card.Header() {
 						@card.Title() {
@@ -242,6 +259,16 @@ templ Doc(p DocProps) {
 				@chainList("Serves", p.Chain.Up)
 				@chainList("Served by", p.Chain.Down)
 				@linkList("Cards building it", cardItems(p.Cards))
+				if len(p.Events) > 0 {
+					<section class="grid gap-2" aria-label="Changes">
+						<h2 class="text-sm font-semibold">Changes</h2>
+						<ol class="grid gap-1.5">
+							for _, e := range p.Events {
+								<li class="text-xs"><span>{ docEventText(e) }</span> <span class="text-muted-foreground">· { actorText(e.Actor) } · { Ago(e.CreatedAt, p.Now) }</span></li>
+							}
+						</ol>
+					</section>
+				}
 			</aside>
 		</div>
 	}

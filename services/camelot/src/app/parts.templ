@@ -1,0 +1,116 @@
+package app
+
+import (
+	"github.com/axadrn/shadcn-templ/v2/components/button"
+	"github.com/axadrn/shadcn-templ/v2/components/input"
+	"github.com/axadrn/shadcn-templ/v2/components/nativeselect"
+	"github.com/axadrn/shadcn-templ/v2/components/tooltip"
+
+	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
+)
+
+// StageBadge is a stage's colour dot beside its label (the colour never stands alone).
+templ StageBadge(s taskmodel.Status) {
+	<span class="inline-flex items-center gap-1.5 text-xs font-medium">
+		<span aria-hidden="true" class={ "size-2 shrink-0 rounded-full", stageDot(s) }></span>
+		{ s.Label() }
+	</span>
+}
+
+// answerForm answers the question waiting on a card: one button per option
+// (in the agent's order, the first highlighted) and, in its own form so
+// Enter never picks an option, a free-text answer.
+templ answerForm(c *taskmodel.Card) {
+	<div class="grid gap-2" role="group" aria-label={ "Answer for " + c.ID }>
+		if len(c.Options) > 0 {
+			<form method="post" action={ TaskHref(c.ID) + "/answer" } class="flex flex-wrap gap-2">
+				<input type="hidden" name="updated_at" value={ ISO(c.UpdatedAt) }/>
+				for i, o := range c.Options {
+					if i == 0 {
+						@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Attributes: templ.Attributes{"name": "answer", "value": o}}) {
+							{ o }
+						}
+					} else {
+						@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Variant: button.VariantOutline, Attributes: templ.Attributes{"name": "answer", "value": o}}) {
+							{ o }
+						}
+					}
+				}
+			</form>
+		}
+		<form method="post" action={ TaskHref(c.ID) + "/answer" } class="flex gap-2">
+			<input type="hidden" name="updated_at" value={ ISO(c.UpdatedAt) }/>
+			<label for={ "custom-" + c.ID } class="sr-only">Your answer to { c.ID }</label>
+			@input.Input(input.Props{ID: "custom-" + c.ID, Name: "custom", Placeholder: answerPlaceholder(c), Class: "h-8", Required: true})
+			@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Variant: button.VariantSecondary}) {
+				Answer
+			}
+		</form>
+	</div>
+}
+
+// nextStepForm moves a card one stage on or back, with every stage one choice away.
+templ nextStepForm(c *taskmodel.Card, returnTo string) {
+	{{ next, hasNext := nextStatus(c.Status) }}
+	{{ prev, hasPrev := prevStatus(c.Status) }}
+	<div class="grid gap-2">
+		<div class="flex flex-wrap gap-2">
+			if hasNext {
+				<form method="post" action={ TaskHref(c.ID) + "/move" }>
+					<input type="hidden" name="updated_at" value={ ISO(c.UpdatedAt) }/>
+					<input type="hidden" name="status" value={ string(next) }/>
+					<input type="hidden" name="return" value={ returnTo }/>
+					@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm}) {
+						{ next.Label() } →
+					}
+				</form>
+			}
+			if hasPrev {
+				<form method="post" action={ TaskHref(c.ID) + "/move" }>
+					<input type="hidden" name="updated_at" value={ ISO(c.UpdatedAt) }/>
+					<input type="hidden" name="status" value={ string(prev) }/>
+					<input type="hidden" name="return" value={ returnTo }/>
+					@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Variant: button.VariantOutline}) {
+						← Back to { prev.Label() }
+					}
+				</form>
+			}
+		</div>
+		<details class="text-sm">
+			<summary class="cursor-pointer text-xs text-muted-foreground">Another stage</summary>
+			<form method="post" action={ TaskHref(c.ID) + "/move" } class="mt-2 flex gap-2">
+				<input type="hidden" name="updated_at" value={ ISO(c.UpdatedAt) }/>
+				<input type="hidden" name="return" value={ returnTo }/>
+				<label for={ "move-" + c.ID } class="sr-only">New status</label>
+				@nativeselect.NativeSelect(nativeselect.Props{ID: "move-" + c.ID, Name: "status", Class: "w-full"}) {
+					for _, s := range taskmodel.Statuses {
+						@nativeselect.Option(nativeselect.OptionProps{Value: string(s), Selected: s == c.Status}) {
+							{ s.Label() }
+						}
+					}
+				}
+				@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Variant: button.VariantOutline}) {
+					Move
+				}
+			</form>
+		</details>
+	</div>
+}
+
+// InfoTip is an ⓘ that shows how a number is computed.
+templ InfoTip(label, text string) {
+	@tooltip.Tooltip() {
+		<button type="button" class="inline-grid size-5 place-items-center rounded-full text-[11px] text-muted-foreground hover:bg-muted focus-visible:outline-2" aria-label={ "How " + label + " is counted" } { tooltip.Trigger(ctx)... }>ⓘ</button>
+		@tooltip.Content(tooltip.ContentProps{Class: "max-w-72"}) {
+			{ text }
+		}
+	}
+}
+
+// answerPlaceholder invites a free-text answer.
+func answerPlaceholder(c *taskmodel.Card) string {
+	if len(c.Options) > 0 {
+		return "or write your own answer"
+	}
+	return "your answer"
+}

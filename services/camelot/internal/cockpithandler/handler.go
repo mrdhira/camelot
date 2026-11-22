@@ -14,9 +14,12 @@ import (
 
 	"github.com/mrdhira/camelot/services/camelot/internal/docmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/docservice"
+	"github.com/mrdhira/camelot/services/camelot/internal/feedmodel"
+	"github.com/mrdhira/camelot/services/camelot/internal/feedservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/insightmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/insightservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/pkg/markdown"
+	"github.com/mrdhira/camelot/services/camelot/internal/searchservice"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/taskservice"
 	"github.com/mrdhira/camelot/services/camelot/src/app"
@@ -42,17 +45,24 @@ type Handler struct {
 	taskSvc    taskservice.Service
 	docSvc     docservice.Service
 	insightSvc insightservice.Service
+	feedSvc    feedservice.Service
+	searchSvc  searchservice.Service
 }
 
 // New returns the handler.
-func New(config Config, logger *slog.Logger, taskSvc taskservice.Service, docSvc docservice.Service, insightSvc insightservice.Service) *Handler {
-	return &Handler{config: config, logger: logger, taskSvc: taskSvc, docSvc: docSvc, insightSvc: insightSvc}
+func New(config Config, logger *slog.Logger, taskSvc taskservice.Service, docSvc docservice.Service, insightSvc insightservice.Service, feedSvc feedservice.Service, searchSvc searchservice.Service) *Handler {
+	return &Handler{config: config, logger: logger, taskSvc: taskSvc, docSvc: docSvc, insightSvc: insightSvc, feedSvc: feedSvc, searchSvc: searchSvc}
 }
 
-// Routes registers every page on s.
+// Routes registers every page on s; pages get the header's facts (shell).
 func (h *Handler) Routes(s *httpx.Server) {
 	s.Get("/assets/", assets.Serve)
 	s.Get("/healthz", healthz)
+	s.Get("/changes/stamp", h.stamp)
+	s.Get("/search", h.search)
+	s.Post("/feed/seen", h.feedSeen)
+	s.Post("/tasks/{id}/answer", h.taskAnswer)
+	s.Get("/tasks/{id}/panel", h.taskPanel)
 	s.Get("/{$}", h.cockpit)
 	s.Get("/board", h.board)
 	s.Post("/board", h.moveFallback)
@@ -64,7 +74,6 @@ func (h *Handler) Routes(s *httpx.Server) {
 	s.Post("/tasks/{id}", h.taskUpdate)
 	s.Get("/tasks/{id}/edit", h.taskEdit)
 	s.Post("/tasks/{id}/move", h.taskMove)
-	s.Post("/tasks/{id}/resolve", h.taskResolve)
 	s.Get("/tasks/{id}/delete", h.taskDeleteForm)
 	s.Post("/tasks/{id}/delete", h.taskDelete)
 	s.Get("/tasks/{id}/files/{name}", h.taskFile)
@@ -80,21 +89,111 @@ func healthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok\n"))
 }
 
-// cockpit is GET /.
+// cockpit is GET /: what's new first, then the decisions, then the numbers.
 func (h *Handler) cockpit(w http.ResponseWriter, r *http.Request) {
+	feed, err := h.feedSvc.Feed(r.Context())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	o, err := h.insightSvc.Overview(r.Context())
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	writePage(w, r, http.StatusOK, app.Cockpit(o))
+	h.writePageWith(w, r, http.StatusOK, app.Cockpit(feed, o), feed)
+}
+
+// stamp is GET /changes/stamp: a value that changes with any card or document change (live.js).
+func (h *Handler) stamp(w http.ResponseWriter, r *http.Request) {
+	stamp, err := h.feedSvc.Stamp(r.Context())
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "stamp failed", "error", err)
+		http.Error(w, "stamp failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte(stamp.String()))
+}
+
+// feedSeen is POST /feed/seen: marks the feed seen up to the as_of the page showed.
+func (h *Handler) feedSeen(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writePage(w, r, http.StatusBadRequest, app.ErrorPage(http.StatusBadRequest, "The form could not be read."))
+		return
+	}
+	if err := h.feedSvc.MarkSeen(r.Context(), &feedmodel.SeenRequest{Stamp: r.PostForm.Get("stamp")}); err != nil {
+		if errors.Is(err, feedmodel.ErrInvalid) {
+			h.writePage(w, r, http.StatusBadRequest, app.ErrorPage(http.StatusBadRequest, err.Error()))
+			return
+		}
+		h.fail(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// taskAnswer is POST /tasks/{id}/answer: Dhira's decision on the waiting question.
+func (h *Handler) taskAnswer(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writePage(w, r, http.StatusBadRequest, app.ErrorPage(http.StatusBadRequest, "The form could not be read."))
+		return
+	}
+	id := r.PathValue("id")
+	answer := r.PostForm.Get("answer")
+	if custom := strings.TrimSpace(r.PostForm.Get("custom")); custom != "" && answer == "" {
+		answer = custom
+	}
+	_, err := h.taskSvc.Answer(r.Context(), &taskmodel.AnswerRequest{ID: id, Answer: answer, Actor: Actor, UpdatedAt: parseTime(r.PostForm.Get("updated_at"))})
+	if err != nil {
+		if status, ok := userError(err); ok {
+			h.renderTask(w, r, status, id, err.Error())
+			return
+		}
+		h.fail(w, r, err)
+		return
+	}
+	h.back(w, r, id)
+}
+
+// taskPanel is GET /tasks/{id}/panel: the card as a fragment for the board's side panel.
+func (h *Handler) taskPanel(w http.ResponseWriter, r *http.Request) {
+	props, err := h.taskProps(r, r.PathValue("id"), "")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	_ = httpx.Render(w, r, http.StatusOK, app.TaskPanel(props))
+}
+
+// search is GET /search?q=: cards, documents (title and text) and pages for the ⌘K palette, as JSON.
+func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
+	results, err := h.searchAll(r, r.URL.Query().Get("q"))
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "search failed", "error", err)
+		http.Error(w, "search failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	httpx.JSON(w, http.StatusOK, results)
 }
 
 // board is GET /board: the columns, filtered by the query.
 func (h *Handler) board(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	filter := app.BoardFilter{Type: q.Get("type"), Milestone: q.Get("milestone"), Query: q.Get("q"), Waiting: q.Get("waiting") != "", AllDone: q.Get("all_done") != ""}
+	filter := app.BoardFilter{Type: q.Get("type"), Milestone: q.Get("milestone"), Query: q.Get("q"), Waiting: q.Get("waiting") != "", AllDone: q.Get("all_done") != "",
+		Blocked: q.Get("blocked") != "", Stale: q.Get("stale") != "", Status: q.Get("status")}
 	cf := taskmodel.CardFilter{MilestoneID: filter.Milestone, Query: filter.Query, Waiting: filter.Waiting}
+	if filter.Status != "" {
+		st, err := taskmodel.ParseStatus(filter.Status)
+		if err != nil {
+			h.writePage(w, r, http.StatusBadRequest, app.ErrorPage(http.StatusBadRequest, err.Error()))
+			return
+		}
+		cf.Statuses = []taskmodel.Status{st}
+	}
 	if filter.Type != "" {
 		t, err := taskmodel.ParseType(filter.Type)
 		if err != nil {
@@ -113,6 +212,25 @@ func (h *Handler) board(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.fail(w, r, err)
 		return
+	}
+	if filter.Blocked || filter.Stale {
+		o, err := h.insightSvc.Overview(ctx)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		keep := map[string]bool{}
+		if filter.Blocked {
+			for _, b := range o.Blocked {
+				keep[b.Card.ID] = true
+			}
+		}
+		if filter.Stale {
+			for _, a := range o.Stale {
+				keep[a.Card.ID] = true
+			}
+		}
+		cards = slices.DeleteFunc(cards, func(c *taskmodel.Card) bool { return !keep[c.ID] })
 	}
 	status := map[string]taskmodel.Status{}
 	var milestones []*taskmodel.Card
@@ -147,7 +265,7 @@ func (h *Handler) board(w http.ResponseWriter, r *http.Request) {
 		p.Total += len(col.Cards) + col.Hidden
 		p.Columns = append(p.Columns, col)
 	}
-	writePage(w, r, http.StatusOK, app.Board(p))
+	h.writePage(w, r, http.StatusOK, app.Board(p))
 }
 
 // boardCard flags a card blocked when a dependency is not Done.
@@ -170,7 +288,7 @@ func (h *Handler) insights(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writePage(w, r, http.StatusOK, app.Insights(o))
+	h.writePage(w, r, http.StatusOK, app.Insights(o))
 }
 
 // check is GET /check.
@@ -180,7 +298,7 @@ func (h *Handler) check(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writePage(w, r, http.StatusOK, app.Check(c))
+	h.writePage(w, r, http.StatusOK, app.Check(c))
 }
 
 // task is GET /tasks/{id}.
@@ -190,28 +308,35 @@ func (h *Handler) task(w http.ResponseWriter, r *http.Request) {
 
 // renderTask writes a card's page with an optional error.
 func (h *Handler) renderTask(w http.ResponseWriter, r *http.Request, status int, id, errMsg string) {
-	detail, err := h.taskSvc.Get(r.Context(), &taskmodel.GetRequest{ID: id})
+	props, err := h.taskProps(r, id, errMsg)
 	if err != nil {
 		h.fail(w, r, err)
 		return
+	}
+	h.writePage(w, r, status, app.Task(props))
+}
+
+// taskProps reads a card with its rendered description and folder files.
+func (h *Handler) taskProps(r *http.Request, id, errMsg string) (app.TaskProps, error) {
+	detail, err := h.taskSvc.Get(r.Context(), &taskmodel.GetRequest{ID: id})
+	if err != nil {
+		return app.TaskProps{}, err
 	}
 	description, err := markdown.Render([]byte(detail.Card.Description))
 	if err != nil {
-		h.fail(w, r, err)
-		return
+		return app.TaskProps{}, err
 	}
 	files, err := h.taskSvc.Files(r.Context(), &taskmodel.FilesRequest{ID: id})
 	if err != nil && !errors.Is(err, taskmodel.ErrFolderMissing) {
-		h.fail(w, r, err)
-		return
+		return app.TaskProps{}, err
 	}
-	writePage(w, r, status, app.Task(app.TaskProps{
+	return app.TaskProps{
 		Detail:      detail,
 		Description: description,
 		Files:       files,
 		Error:       errMsg,
 		Now:         time.Now().UTC(),
-	}))
+	}, nil
 }
 
 // taskFile is GET /tasks/{id}/files/{name}: one Markdown file of the card's folder.
@@ -226,7 +351,7 @@ func (h *Handler) taskFile(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writePage(w, r, http.StatusOK, app.TaskFile(file.Card, file.Name, html))
+	h.writePage(w, r, http.StatusOK, app.TaskFile(file.Card, file.Name, html))
 }
 
 // taskNew is GET /tasks/new.
@@ -243,7 +368,7 @@ func (h *Handler) renderForm(w http.ResponseWriter, r *http.Request, status int,
 		return
 	}
 	p.Milestones = milestones
-	writePage(w, r, status, app.TaskForm(p))
+	h.writePage(w, r, status, app.TaskForm(p))
 }
 
 // formProps reads the card form.
@@ -258,6 +383,7 @@ func formProps(r *http.Request) app.TaskFormProps {
 		Milestone: f.Get("milestone"),
 		Assignee:  f.Get("assignee"),
 		Waiting:   f.Get("waiting"),
+		Options:   f.Get("options"),
 		Folder:    f.Get("folder"),
 		Deps:      f.Get("deps"),
 		Docs:      f.Get("docs"),
@@ -288,6 +414,7 @@ func (h *Handler) taskCreate(w http.ResponseWriter, r *http.Request) {
 		Status:      p.Status,
 		Assignee:    p.Assignee,
 		Waiting:     p.Waiting,
+		Options:     splitLines(p.Options),
 		Folder:      p.Folder,
 		Description: p.Desc,
 		Deps:        splitList(p.Deps),
@@ -323,6 +450,7 @@ func (h *Handler) taskEdit(w http.ResponseWriter, r *http.Request) {
 		Milestone: c.MilestoneID,
 		Assignee:  c.Assignee,
 		Waiting:   c.Waiting,
+		Options:   strings.Join(c.Options, "\n"),
 		Folder:    c.Folder,
 		Deps:      strings.Join(c.Deps, ", "),
 		Docs:      strings.Join(c.Docs, ", "),
@@ -340,7 +468,7 @@ func (h *Handler) taskUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	p := formProps(r)
 	p.ID = id
-	deps, docs := splitList(p.Deps), splitList(p.Docs)
+	deps, docs, options := splitList(p.Deps), splitList(p.Docs), splitLines(p.Options)
 	request := &taskmodel.UpdateRequest{
 		ID:          id,
 		MilestoneID: &p.Milestone,
@@ -349,6 +477,7 @@ func (h *Handler) taskUpdate(w http.ResponseWriter, r *http.Request) {
 		Status:      &p.Status,
 		Assignee:    &p.Assignee,
 		Waiting:     &p.Waiting,
+		Options:     &options,
 		Folder:      &p.Folder,
 		Description: &p.Desc,
 		Deps:        &deps,
@@ -378,22 +507,12 @@ func (h *Handler) taskMove(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	status := r.PostForm.Get("status")
-	h.update(w, r, &taskmodel.UpdateRequest{ID: id, Status: &status, Actor: Actor, UpdatedAt: parseTime(r.PostForm.Get("updated_at"))}, r.PostForm.Get("return") == "board")
+	h.update(w, r, &taskmodel.UpdateRequest{ID: id, Status: &status, Actor: Actor, Note: r.PostForm.Get("note"), UpdatedAt: parseTime(r.PostForm.Get("updated_at"))}, r.PostForm.Get("return") == "board")
 }
 
 // moveFallback answers the board's move form posted without a card (no script ran).
 func (h *Handler) moveFallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/board", http.StatusSeeOther)
-}
-
-// taskResolve is POST /tasks/{id}/resolve: clears the question waiting on Dhira.
-func (h *Handler) taskResolve(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		writePage(w, r, http.StatusBadRequest, app.ErrorPage(http.StatusBadRequest, "The form could not be read."))
-		return
-	}
-	empty := ""
-	h.update(w, r, &taskmodel.UpdateRequest{ID: r.PathValue("id"), Waiting: &empty, Actor: Actor, Note: "decided", UpdatedAt: parseTime(r.PostForm.Get("updated_at"))}, false)
 }
 
 // update applies a one-field change and returns to the card or the board;
@@ -409,7 +528,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request, request *taskmo
 		return
 	}
 	if !toBoard {
-		h.redirectToTask(w, r, request.ID)
+		h.back(w, r, request.ID)
 		return
 	}
 	target := "/board"
@@ -417,6 +536,20 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request, request *taskmo
 		target = "/board?" + ref.Query().Encode()
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther) //nolint:gosec // always /board on this host, with the board's own query
+}
+
+// back returns the browser to the page it came from on this host (the
+// cockpit, the board, a card), else to the card's page.
+func (h *Handler) back(w http.ResponseWriter, r *http.Request, id string) {
+	if ref, err := url.Parse(r.Referer()); err == nil && ref.Host == r.Host && (ref.Path == "/" || ref.Path == "/board") {
+		target := ref.Path
+		if ref.RawQuery != "" {
+			target += "?" + ref.Query().Encode()
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther) //nolint:gosec // one of this host's own pages, its query re-encoded
+		return
+	}
+	h.redirectToTask(w, r, id)
 }
 
 // redirectToTask sends the browser to a card's page; the ID is re-parsed,
@@ -437,7 +570,7 @@ func (h *Handler) taskDeleteForm(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writePage(w, r, http.StatusOK, app.TaskDelete(detail.Card, ""))
+	h.writePage(w, r, http.StatusOK, app.TaskDelete(detail.Card, ""))
 }
 
 // taskDelete is POST /tasks/{id}/delete.
@@ -455,7 +588,7 @@ func (h *Handler) taskDelete(w http.ResponseWriter, r *http.Request) {
 				h.fail(w, r, gerr)
 				return
 			}
-			writePage(w, r, status, app.TaskDelete(detail.Card, err.Error()))
+			h.writePage(w, r, status, app.TaskDelete(detail.Card, err.Error()))
 			return
 		}
 		h.fail(w, r, err)
@@ -471,7 +604,7 @@ func (h *Handler) docs(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writePage(w, r, http.StatusOK, app.Docs(app.DocsProps{Overview: o, Tree: docTree(o.Docs), Roots: h.config.DocRoots}))
+	h.writePage(w, r, http.StatusOK, app.Docs(app.DocsProps{Overview: o, Tree: docTree(o.Docs), Roots: h.config.DocRoots}))
 }
 
 // docTree arranges documents from the top of the chain down; a document
@@ -562,7 +695,21 @@ func (h *Handler) renderDoc(w http.ResponseWriter, r *http.Request, status int, 
 		h.fail(w, r, err)
 		return
 	}
-	writePage(w, r, status, app.Doc(app.DocProps{Chain: chain, Progress: progress, Cards: cards, HTML: html, Error: errMsg}))
+	events, err := h.docSvc.Events(ctx, &docmodel.EventFilter{DocID: chain.Doc.ID, Limit: 10})
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.writePage(w, r, status, app.Doc(app.DocProps{
+		Chain:    chain,
+		Progress: progress,
+		Cards:    cards,
+		HTML:     html,
+		TOC:      markdown.Headings(html),
+		Events:   events,
+		Now:      time.Now().UTC(),
+		Error:    errMsg,
+	}))
 }
 
 // docStatus is POST /docs/{id}/status.
@@ -572,7 +719,7 @@ func (h *Handler) docStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if _, err := h.docSvc.SetStatus(r.Context(), &docmodel.SetStatusRequest{ID: id, Status: r.PostForm.Get("status")}); err != nil {
+	if _, err := h.docSvc.SetStatus(r.Context(), &docmodel.SetStatusRequest{ID: id, Status: r.PostForm.Get("status"), Actor: Actor}); err != nil {
 		if status, ok := userError(err); ok && !errors.Is(err, docmodel.ErrNotFound) {
 			h.renderDoc(w, r, status, id, err.Error())
 			return
@@ -585,6 +732,10 @@ func (h *Handler) docStatus(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	if ref, err := url.Parse(r.Referer()); err == nil && ref.Host == r.Host && ref.Path == "/" {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, app.DocHref(docID), http.StatusSeeOther) //nolint:gosec // a parsed document ID under /docs/
 }
 
@@ -595,6 +746,8 @@ func userError(err error) (int, bool) {
 		return http.StatusNotFound, true
 	case errors.Is(err, taskmodel.ErrStale), errors.Is(err, taskmodel.ErrExists):
 		return http.StatusConflict, true
+	case errors.Is(err, taskmodel.ErrNothingWaiting):
+		return http.StatusUnprocessableEntity, true
 	case errors.Is(err, taskmodel.ErrInvalidID), errors.Is(err, taskmodel.ErrInvalidStatus), errors.Is(err, taskmodel.ErrInvalidType),
 		errors.Is(err, taskmodel.ErrInvalidField), errors.Is(err, taskmodel.ErrInvalidLink), errors.Is(err, docmodel.ErrInvalid):
 		return http.StatusUnprocessableEntity, true
@@ -610,6 +763,25 @@ func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	h.logger.ErrorContext(r.Context(), "request failed", "error", err)
 	writePage(w, r, http.StatusInternalServerError, app.ErrorPage(http.StatusInternalServerError, "Something broke. The details are in the server log."))
+}
+
+// writePage renders a full page with the header's facts: the feed's unread
+// count and the change stamp; a failure to read them leaves them empty.
+func (h *Handler) writePage(w http.ResponseWriter, r *http.Request, status int, page templ.Component) {
+	feed, err := h.feedSvc.Feed(r.Context())
+	if err != nil {
+		h.logger.WarnContext(r.Context(), "feed for the header failed", "error", err)
+	}
+	h.writePageWith(w, r, status, page, feed)
+}
+
+// writePageWith renders a full page with the header's facts taken from feed (nil leaves them empty).
+func (h *Handler) writePageWith(w http.ResponseWriter, r *http.Request, status int, page templ.Component, feed *feedmodel.Feed) {
+	shell := app.Shell{AsOf: time.Now().UTC()}
+	if feed != nil {
+		shell.Unread, shell.Stamp, shell.AsOf = len(feed.Items), feed.Stamp.String(), feed.AsOf
+	}
+	writePage(w, r.WithContext(app.WithShell(r.Context(), shell)), status, page)
 }
 
 // writePage renders a page, never cached.
@@ -633,6 +805,17 @@ func splitList(v string) []string {
 	for part := range strings.SplitSeq(v, ",") {
 		if p := strings.TrimSpace(part); p != "" {
 			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// splitLines splits text into its non-blank lines, trimmed.
+func splitLines(v string) []string {
+	out := []string{}
+	for line := range strings.SplitSeq(strings.ReplaceAll(v, "\r\n", "\n"), "\n") {
+		if l := strings.TrimSpace(line); l != "" {
+			out = append(out, l)
 		}
 	}
 	return out

@@ -4,6 +4,8 @@
 package docmodel
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
@@ -126,15 +128,102 @@ const DateLayout = time.DateOnly
 
 // Doc is one document file.
 type Doc struct {
-	ID      string   `json:"id"`
-	Type    Type     `json:"type"`
-	Title   string   `json:"title"`
-	Status  Status   `json:"status"`
-	Owner   string   `json:"owner"`
-	Updated string   `json:"updated"`
-	Serves  []string `json:"serves"`
-	Path    string   `json:"path"`
-	Body    []byte   `json:"-"`
+	ID         string    `json:"id"`
+	Type       Type      `json:"type"`
+	Title      string    `json:"title"`
+	Status     Status    `json:"status"`
+	Owner      string    `json:"owner"`
+	Updated    string    `json:"updated"`
+	Serves     []string  `json:"serves"`
+	Path       string    `json:"path"`
+	Hash       string    `json:"-"`
+	ModifiedAt time.Time `json:"modified_at"`
+	Body       []byte    `json:"-"`
+}
+
+// HashOf is a document content's hash, as snapshots record it.
+func HashOf(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
+}
+
+// The kinds of document change.
+const (
+	KindCreated = "created"
+	KindEdited  = "edited"
+	KindStatus  = "status"
+	KindRemoved = "removed"
+)
+
+// ActorFile is who changed a document edited outside Camelot: unknown.
+const ActorFile = "file"
+
+// Snapshot is what Camelot last saw of a document file.
+type Snapshot struct {
+	DocID      string
+	Path       string
+	Title      string
+	Type       Type
+	Status     Status
+	Hash       string
+	ModifiedAt time.Time
+	SyncedAt   time.Time
+}
+
+// NewSnapshot returns the snapshot of doc taken at now.
+func NewSnapshot(doc *Doc, now time.Time) *Snapshot {
+	return &Snapshot{
+		DocID:      doc.ID,
+		Path:       doc.Path,
+		Title:      doc.Title,
+		Type:       doc.Type,
+		Status:     doc.Status,
+		Hash:       doc.Hash,
+		ModifiedAt: doc.ModifiedAt,
+		SyncedAt:   now,
+	}
+}
+
+// Change is one document's sync: its new snapshot (nil to remove it), the
+// hash of the snapshot it was computed from ("" when there was none), and
+// its events. A change whose base no longer matches is skipped: another
+// process already recorded it.
+type Change struct {
+	DocID    string
+	BaseHash string
+	Snapshot *Snapshot
+	Events   []*Event
+}
+
+// Event is one recorded change of a document.
+type Event struct {
+	ID        int64     `json:"id"`
+	DocID     string    `json:"doc_id"`
+	Actor     string    `json:"actor"`
+	Kind      string    `json:"kind"`
+	FromValue string    `json:"from_value"`
+	ToValue   string    `json:"to_value"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// NewEvent returns the event of a document change.
+func NewEvent(docID, actor, kind, from, to string, at time.Time) *Event {
+	return &Event{
+		DocID:     docID,
+		Actor:     actor,
+		Kind:      kind,
+		FromValue: from,
+		ToValue:   to,
+		CreatedAt: at,
+	}
+}
+
+// EventFilter narrows document events; zero fields match everything.
+type EventFilter struct {
+	DocID   string
+	Since   time.Time
+	AfterID int64
+	Limit   int
 }
 
 // Problem is something wrong in a document file or its links.
@@ -172,6 +261,7 @@ type GetRequest struct {
 type SetStatusRequest struct {
 	ID     string
 	Status string
+	Actor  string
 }
 
 // The domain's errors.

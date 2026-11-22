@@ -39,6 +39,8 @@ type Repository interface {
 	CardDelete(ctx context.Context, id string, at time.Time, event *taskmodel.Event) (bool, error)
 	// CardMaxNumber returns the highest N of IDs "<prefix>-N", deleted cards included; 0 when none.
 	CardMaxNumber(ctx context.Context, prefix string) (int, error)
+	// CardEventMaxID returns the highest card event ID; 0 when none.
+	CardEventMaxID(ctx context.Context) (int64, error)
 	// CardEventSelect returns events matching filter, newest first.
 	CardEventSelect(ctx context.Context, filter *taskmodel.EventFilter) ([]*taskmodel.Event, error)
 }

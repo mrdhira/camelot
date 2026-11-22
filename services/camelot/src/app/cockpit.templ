@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"github.com/axadrn/shadcn-templ/v2/components/alert"
 	"github.com/axadrn/shadcn-templ/v2/components/badge"
 	"github.com/axadrn/shadcn-templ/v2/components/button"
@@ -8,15 +10,16 @@ import (
 	"github.com/axadrn/shadcn-templ/v2/components/empty"
 	"github.com/axadrn/shadcn-templ/v2/components/table"
 
+	"github.com/mrdhira/camelot/services/camelot/internal/docmodel"
+	"github.com/mrdhira/camelot/services/camelot/internal/feedmodel"
 	"github.com/mrdhira/camelot/services/camelot/internal/insightmodel"
-	"github.com/mrdhira/camelot/services/camelot/internal/taskmodel"
 )
 
-// Cockpit is the home page: the headline numbers, what waits for Dhira,
-// what is in flight, what is blocked or stale, and who did what.
-templ Cockpit(o *insightmodel.Overview) {
-	@Layout("Cockpit", NavCockpit) {
-		@PageHeader("Cockpit", "As of "+When(o.Now)+". Facts from the board; the decisions are yours.")
+// Cockpit is the home page, in the order Dhira reads it: what changed since
+// he last looked, what waits for his decision, the numbers (each a link to
+// its cards), then what is in flight, blocked and who did what.
+templ Cockpit(feed *feedmodel.Feed, o *insightmodel.Overview) {
+	@Layout("Cockpit", NavCockpit, Scripts([]Component{ComponentTooltip})...) {
 		if o.Problems > 0 {
 			@alert.Alert() {
 				@alert.Title() {
@@ -27,153 +30,216 @@ templ Cockpit(o *insightmodel.Overview) {
 				}
 			}
 		}
-		<div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-			@StatTile("Waiting on you", itoa(len(o.Waiting)+len(o.DocsInReview)), "cards with a question + documents in review", len(o.Waiting)+len(o.DocsInReview) > 0)
-			@StatTile("In review", itoa(len(o.InReview)), "cards in Review in Progress", false)
-			@StatTile("Work in progress", itoa(o.WIP), insightmodel.FormulaWIP, false)
-			@StatTile("Blocked", itoa(len(o.Blocked)), "unfinished cards with a dependency not Done", len(o.Blocked) > 0)
-			@StatTile("Stale", itoa(len(o.Stale)), "started cards with no event for over 7 days", len(o.Stale) > 0)
-			@StatTile("Done this week", itoa(thisWeek(o)), "cards finished since Monday 00:00 UTC; "+itoa(o.Finished)+" in 12 weeks", false)
-		</div>
-		@Section("Waiting for your decision", "a card's waiting question, cards in Review, documents in review") {
-			if len(o.Waiting) == 0 && len(o.InReview) == 0 && len(o.DocsInReview) == 0 {
-				@empty.Empty(empty.Props{Class: "border"}) {
-					@empty.Header() {
-						@empty.Title() {
-							Nothing waits for you
-						}
-						@empty.Description() {
-							No card has a question and nothing is in review.
-						}
-					}
-				}
-			} else {
-				<div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-					for _, c := range o.Waiting {
-						@decisionCard(c, c.Waiting)
-					}
-					for _, c := range o.InReview {
-						if c.Waiting == "" {
-							@decisionCard(c, "Review the report and the diff, then approve the commit or send it back.")
-						}
-					}
-					for _, d := range o.DocsInReview {
-						@card.Card() {
-							@card.Header() {
-								@card.Title() {
-									<a href={ DocHref(d.ID) } class="hover:underline">{ d.ID } · { d.Title }</a>
-								}
-								@card.Description() {
-									{ d.Type.Label() } in review since { d.Updated }
-								}
-							}
-						}
-					}
-				</div>
-			}
-		}
+		@whatsNew(feed)
+		@decisions(o)
+		<section aria-label="Numbers" class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+			@StatTile("Waiting on you", itoa(len(o.Waiting)+len(o.DocsInReview)), "cards with a question and documents in review", "#decisions", len(o.Waiting)+len(o.DocsInReview) > 0)
+			@StatTile("In review", itoa(len(o.InReview)), "cards in Review in Progress", "/board?status=review", false)
+			@StatTile("Work in progress", itoa(o.WIP), insightmodel.FormulaWIP, "/board", false)
+			@StatTile("Blocked", itoa(len(o.Blocked)), "unfinished cards with a dependency not Done", "/board?blocked=1", len(o.Blocked) > 0)
+			@StatTile("Stale", itoa(len(o.Stale)), "started cards with no change for over 7 days", "/board?stale=1", len(o.Stale) > 0)
+			@StatTile("Done this week", itoa(thisWeek(o)), "cards finished since Monday 00:00 UTC; "+itoa(o.Finished)+" in 12 weeks", "/insights", false)
+		</section>
 		<div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-			@Section("In flight", insightmodel.FormulaAge+". Flagged: older than the cycle time p85 ("+ageThreshold(o)+").") {
+			@Section("In flight", "oldest first; ▲ = older than "+ageThreshold(o)) {
 				@inFlightTable(o)
 			}
-			@Section("Agents, last 7 days", "who recorded changes, from the card history; an agent that records nothing is invisible here") {
+			@Section("Agents, last 7 days", "who recorded changes; an agent that records nothing is invisible here") {
 				if len(o.Agents) == 0 {
 					<p class="text-sm text-muted-foreground">No changes recorded in the last 7 days.</p>
 				} else {
-					<div class="overflow-x-auto" tabindex="0" role="region" aria-label="Agents">
-						@table.Table() {
-							@table.Header() {
-								@table.Row() {
-									@table.Head() {
-										Actor
-									}
-									@table.Head(table.HeadProps{Class: "text-right"}) {
-										Changes
-									}
-									@table.Head() {
-										Last
-									}
-								}
-							}
-							@table.Body() {
-								for _, a := range o.Agents {
-									@table.Row() {
-										@table.Cell(table.CellProps{Class: "font-medium"}) {
-											{ a.Actor }
-										}
-										@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) {
-											{ itoa(a.Events) }
-										}
-										@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
-											<a href={ TaskHref(a.LastCard) } class="font-mono text-xs hover:underline">{ a.LastCard }</a>
-											<span class="text-muted-foreground">· { Ago(a.LastAt, o.Now) }</span>
-										}
-									}
-								}
-							}
-						}
-					</div>
-				}
-			}
-		</div>
-		<div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
-			@Section("Blocked", "unfinished cards waiting for a dependency that is not Done") {
-				if len(o.Blocked) == 0 {
-					<p class="text-sm text-muted-foreground">Nothing is blocked.</p>
-				} else {
 					<ul class="grid gap-2 text-sm">
-						for _, b := range o.Blocked {
-							<li>
-								<a href={ TaskHref(b.Card.ID) } class="hover:underline"><span class="font-mono text-xs text-muted-foreground">{ b.Card.ID }</span> { b.Card.Title }</a>
-								<span class="text-muted-foreground">waits for</span>
-								for i, id := range b.By {
-									if i > 0 {
-										,
-									}
-									<a href={ TaskHref(id) } class="font-mono text-xs underline underline-offset-4">{ id }</a>
-								}
+						for _, a := range o.Agents {
+							<li class="flex flex-wrap items-baseline justify-between gap-x-3">
+								<span class="font-medium">{ actorText(a.Actor) }</span>
+								<span class="text-muted-foreground"><span class="tabular-nums">{ plural(a.Events, "change", "changes") }</span> · last <a href={ TaskHref(a.LastCard) } class="font-mono text-xs hover:underline">{ a.LastCard }</a> { Ago(a.LastAt, o.Now) }</span>
 							</li>
 						}
 					</ul>
 				}
 			}
-			@Section("Recent changes", "the last 15 events") {
-				<ul class="grid gap-1.5 text-sm">
-					for _, e := range o.Recent {
-						<li class="flex flex-wrap items-baseline gap-x-2">
-							<a href={ TaskHref(e.CardID) } class="font-mono text-xs hover:underline">{ e.CardID }</a>
-							<span>{ eventText(e) }</span>
-							<span class="text-xs text-muted-foreground">{ e.Actor } · { Ago(e.CreatedAt, o.Now) }</span>
+		</div>
+		if len(o.Blocked) > 0 {
+			@Section("Blocked", "unfinished cards waiting for a dependency that is not Done") {
+				<ul class="grid gap-2 text-sm">
+					for _, b := range o.Blocked {
+						<li>
+							<a href={ TaskHref(b.Card.ID) } class="hover:underline" data-panel={ b.Card.ID }><span class="font-mono text-xs text-muted-foreground">{ b.Card.ID }</span> { b.Card.Title }</a>
+							<span class="text-muted-foreground">waits for</span>
+							for i, id := range b.By {
+								if i > 0 {
+									,
+								}
+								<a href={ TaskHref(id) } class="font-mono text-xs underline underline-offset-4">{ id }</a>
+							}
 						</li>
 					}
 				</ul>
 			}
-		</div>
+		}
 	}
 }
 
-// decisionCard is a card that waits for Dhira, with its question.
-templ decisionCard(c *taskmodel.Card, question string) {
-	@card.Card(card.Props{Class: "border-status-critical/40"}) {
-		@card.Header() {
-			@card.Title() {
-				<a href={ TaskHref(c.ID) } class="hover:underline"><span class="font-mono text-xs text-muted-foreground">{ c.ID }</span> { c.Title }</a>
+// whatsNew is every card and document changed since Dhira last marked the feed seen.
+templ whatsNew(feed *feedmodel.Feed) {
+	<section aria-labelledby="whats-new" class="grid gap-3">
+		<div class="flex flex-wrap items-end justify-between gap-3">
+			<div class="grid gap-0.5">
+				<h1 id="whats-new" class="text-2xl font-semibold tracking-tight">
+					if len(feed.Items) == 0 {
+						Nothing new
+					} else {
+						{ plural(len(feed.Items), "update", "updates") }
+					}
+				</h1>
+				<p class="text-sm text-muted-foreground">
+					if feed.FirstLook {
+						Cards and documents changed in the last 7 days.
+					} else {
+						Cards and documents changed since you last looked, <time datetime={ ISO(feed.Since) }>{ When(feed.Since) }</time>.
+					}
+				</p>
+			</div>
+			if len(feed.Items) > 0 {
+				<form method="post" action="/feed/seen">
+					<input type="hidden" name="stamp" value={ feed.Stamp.String() }/>
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, Size: button.SizeSm}) {
+						Mark all seen
+					}
+				</form>
 			}
-			@card.Description() {
-				{ question }
-			}
-			@card.Action() {
-				@badge.Badge(badge.Props{Variant: StatusVariant(c.Status)}) {
-					{ c.Status.Label() }
+		</div>
+		if len(feed.Items) == 0 {
+			@empty.Empty(empty.Props{Class: "border py-8"}) {
+				@empty.Header() {
+					@empty.Title() {
+						You are up to date
+					}
+					@empty.Description() {
+						New changes from agents and documents appear here as they happen.
+					}
 				}
 			}
+		} else {
+			<ol class="grid divide-y rounded-xl border" aria-label="Updates, newest first">
+				for _, it := range feed.Items {
+					@feedItem(it, feed.AsOf)
+				}
+			</ol>
 		}
-		@card.Footer() {
-			@button.Button(button.Props{Href: TaskHref(c.ID), Size: button.SizeSm, Variant: button.VariantOutline}) {
-				Open
+	</section>
+}
+
+// feedItem is one card or document with its newest change and how many more.
+templ feedItem(it *feedmodel.Item, now time.Time) {
+	<li class="grid gap-1 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4">
+		<div class="grid min-w-0 gap-0.5">
+			<p class="flex min-w-0 flex-wrap items-baseline gap-x-2">
+				if it.Kind == feedmodel.KindDoc {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+						Doc
+					}
+				}
+				if it.Gone {
+					<span class="font-mono text-xs text-muted-foreground">{ it.ID }</span>
+					<span class="text-muted-foreground">(no longer exists)</span>
+				} else if it.Kind == feedmodel.KindCard {
+					<a href={ TaskHref(it.ID) } class="min-w-0 font-medium hover:underline" data-panel={ it.ID }><span class="font-mono text-xs text-muted-foreground">{ it.ID }</span> { it.Title }</a>
+				} else {
+					<a href={ DocHref(it.ID) } class="min-w-0 font-medium hover:underline"><span class="font-mono text-xs text-muted-foreground">{ it.ID }</span> { it.Title }</a>
+				}
+			</p>
+			<p class="text-sm text-muted-foreground">
+				{ latestText(it) }
+				if it.Changes() > 1 {
+					<span class="text-xs">· +{ itoa(it.Changes() - 1) } more</span>
+				}
+			</p>
+		</div>
+		<p class="text-xs text-muted-foreground sm:text-right">{ latestActor(it) } · <time datetime={ ISO(it.LatestAt) }>{ Ago(it.LatestAt, now) }</time></p>
+	</li>
+}
+
+// decisions is the decision inbox: card questions with their options and a
+// free answer, cards in Review, documents in review with their two outcomes.
+templ decisions(o *insightmodel.Overview) {
+	<section id="decisions" aria-labelledby="decisions-title" class="grid scroll-mt-20 gap-3">
+		<div class="grid gap-0.5">
+			<h2 id="decisions-title" class="text-lg font-semibold">Waiting for your decision</h2>
+			<p class="text-sm text-muted-foreground">Agents asked these; your answer goes back to them on the card.</p>
+		</div>
+		if len(o.Waiting) == 0 && len(o.InReview) == 0 && len(o.DocsInReview) == 0 {
+			<p class="rounded-xl border px-3 py-4 text-sm text-muted-foreground">Nothing waits for you.</p>
+		} else {
+			<div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+				for _, c := range o.Waiting {
+					@card.Card(card.Props{Class: "border-status-critical/60"}) {
+						@card.Header() {
+							@card.Title(card.TitleProps{Class: "text-sm"}) {
+								<a href={ TaskHref(c.ID) } class="hover:underline" data-panel={ c.ID }><span class="font-mono text-xs text-muted-foreground">{ c.ID }</span> { c.Title }</a>
+							}
+							@card.Action() {
+								@StageBadge(c.Status)
+							}
+						}
+						@card.Content(card.ContentProps{Class: "grid gap-3"}) {
+							<p class="font-medium">{ c.Waiting }</p>
+							@answerForm(c)
+						}
+					}
+				}
+				for _, c := range o.InReview {
+					if c.Waiting == "" {
+						@card.Card() {
+							@card.Header() {
+								@card.Title(card.TitleProps{Class: "text-sm"}) {
+									<a href={ TaskHref(c.ID) } class="hover:underline" data-panel={ c.ID }><span class="font-mono text-xs text-muted-foreground">{ c.ID }</span> { c.Title }</a>
+								}
+								@card.Description() {
+									Ready for your review: read the report and the diff, then pass it or send it back.
+								}
+							}
+							@card.Content() {
+								@nextStepForm(c, "")
+							}
+						}
+					}
+				}
+				for _, d := range o.DocsInReview {
+					@card.Card() {
+						@card.Header() {
+							@card.Title(card.TitleProps{Class: "text-sm"}) {
+								<a href={ DocHref(d.ID) } class="hover:underline"><span class="font-mono text-xs text-muted-foreground">{ d.ID }</span> { d.Title }</a>
+							}
+							@card.Description() {
+								{ d.Type.Label() } in review since { d.Updated }.
+							}
+						}
+						@card.Content(card.ContentProps{Class: "flex flex-wrap gap-2"}) {
+							@docStatusButton(d.ID, docmodel.StatusApproved, "Approve", true)
+							@docStatusButton(d.ID, docmodel.StatusDraft, "Back to draft", false)
+						}
+					}
+				}
+			</div>
+		}
+	</section>
+}
+
+// docStatusButton sets a document's status in one press.
+templ docStatusButton(id string, status docmodel.Status, label string, primary bool) {
+	<form method="post" action={ DocHref(id) + "/status" }>
+		<input type="hidden" name="status" value={ string(status) }/>
+		if primary {
+			@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm}) {
+				{ label }
+			}
+		} else {
+			@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Variant: button.VariantOutline}) {
+				{ label }
 			}
 		}
-	}
+	</form>
 }
 
 // inFlightTable lists the started cards, oldest first.
@@ -189,7 +255,7 @@ templ inFlightTable(o *insightmodel.Overview) {
 							Card
 						}
 						@table.Head() {
-							Status
+							Stage
 						}
 						@table.Head() {
 							Assignee
@@ -206,10 +272,10 @@ templ inFlightTable(o *insightmodel.Overview) {
 					for _, a := range o.InFlight {
 						@table.Row() {
 							@table.Cell(table.CellProps{Class: "max-w-80 whitespace-normal"}) {
-								<a href={ TaskHref(a.Card.ID) } class="hover:underline"><span class="font-mono text-xs text-muted-foreground">{ a.Card.ID }</span> { a.Card.Title }</a>
+								<a href={ TaskHref(a.Card.ID) } class="hover:underline" data-panel={ a.Card.ID }><span class="font-mono text-xs text-muted-foreground">{ a.Card.ID }</span> { a.Card.Title }</a>
 							}
 							@table.Cell() {
-								{ a.Card.Status.Label() }
+								@StageBadge(a.Card.Status)
 							}
 							@table.Cell() {
 								{ a.Card.Assignee }
@@ -226,7 +292,7 @@ templ inFlightTable(o *insightmodel.Overview) {
 							}
 							@table.Cell(table.CellProps{Class: "whitespace-normal text-muted-foreground"}) {
 								if a.LastEvent != nil {
-									{ a.LastEvent.Actor } · { Ago(a.LastEvent.CreatedAt, o.Now) }
+									{ actorText(a.LastEvent.Actor) } · { Ago(a.LastEvent.CreatedAt, o.Now) }
 								}
 							}
 						}
@@ -237,13 +303,39 @@ templ inFlightTable(o *insightmodel.Overview) {
 	}
 }
 
-// StatTile is one headline number with how it is computed.
-templ StatTile(label, value, formula string, attention bool) {
-	<div class={ "grid gap-1 rounded-xl border p-3", templ.KV("border-2 border-status-critical", attention) } title={ formula }>
-		<p class="text-xs font-medium text-muted-foreground">{ label }</p>
+// StatTile is one headline number linking to its cards, its formula behind an ⓘ.
+templ StatTile(label, value, formula, href string, attention bool) {
+	<div class={ "relative grid gap-1 rounded-xl border p-3 transition-colors hover:bg-muted/50", templ.KV("border-2 border-status-critical", attention) }>
+		<div class="flex items-center justify-between gap-2">
+			<a href={ href } class="text-xs font-medium text-muted-foreground after:absolute after:inset-0 after:content-['']">{ label }</a>
+			<span class="relative z-10">
+				@InfoTip(label, formula)
+			</span>
+		</div>
 		<p class="text-3xl font-semibold tabular-nums tracking-tight">{ value }</p>
-		<p class="line-clamp-2 text-[11px] leading-4 text-muted-foreground">{ formula }</p>
 	</div>
+}
+
+// latestText is an item's newest change in words.
+func latestText(it *feedmodel.Item) string {
+	if len(it.CardEvents) > 0 && (len(it.DocEvents) == 0 || !it.DocEvents[0].CreatedAt.After(it.CardEvents[0].CreatedAt)) {
+		return eventText(it.CardEvents[0])
+	}
+	if len(it.DocEvents) > 0 {
+		return docEventText(it.DocEvents[0])
+	}
+	return ""
+}
+
+// latestActor names who made an item's newest change.
+func latestActor(it *feedmodel.Item) string {
+	if len(it.CardEvents) > 0 {
+		return actorText(it.CardEvents[0].Actor)
+	}
+	if len(it.DocEvents) > 0 {
+		return actorText(it.DocEvents[0].Actor)
+	}
+	return ""
 }
 
 // thisWeek is the count of the current throughput week.
@@ -259,5 +351,5 @@ func ageThreshold(o *insightmodel.Overview) string {
 	if o.Cycle.Shown() {
 		return Duration(o.Cycle.P85)
 	}
-	return "7 d until " + itoa(insightmodel.MinSample) + " cards have a cycle time; " + itoa(o.Cycle.N) + " so far"
+	return "7 d (cycle time p85 once " + itoa(insightmodel.MinSample) + " cards have one; " + itoa(o.Cycle.N) + " so far)"
 }

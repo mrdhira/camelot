@@ -138,9 +138,9 @@ func TestSetStatus(t *testing.T) {
 		input    *docmodel.SetStatusRequest
 		expected error
 	}{
-		{name: "a status by its label", input: &docmodel.SetStatusRequest{ID: "PRD001", Status: "In review"}},
-		{name: "an unknown status", input: &docmodel.SetStatusRequest{ID: "PRD001", Status: "done"}, expected: docmodel.ErrInvalid},
-		{name: "a missing document", input: &docmodel.SetStatusRequest{ID: "PRD404", Status: "approved"}, expected: docmodel.ErrNotFound},
+		{name: "a status by its label", input: &docmodel.SetStatusRequest{ID: "PRD001", Status: "In review", Actor: "dhira"}},
+		{name: "an unknown status", input: &docmodel.SetStatusRequest{ID: "PRD001", Status: "done", Actor: "dhira"}, expected: docmodel.ErrInvalid},
+		{name: "a missing document", input: &docmodel.SetStatusRequest{ID: "PRD404", Status: "approved", Actor: "dhira"}, expected: docmodel.ErrNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

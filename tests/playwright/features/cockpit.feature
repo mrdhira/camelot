@@ -3,44 +3,93 @@ Feature: Dhira runs his agents' work from the cockpit
   creates them, reads documents and sets their review status. Agents use
   the CLI and MCP; the fixture's cards were created through the CLI.
 
-  Scenario: The cockpit puts what waits for Dhira first
+  Scenario: The cockpit opens on what changed, then what waits for Dhira
     Given Dhira opens "/"
-    Then he sees the heading "Waiting for your decision"
+    Then the first heading is "7 updates"
+    And the updates list "FIX-016" first
+    And he sees the heading "Waiting for your decision"
     And he sees "Approve the fixture?"
     And he sees the document "PRD900" waiting for review
     And the stat "Blocked" shows "1"
 
-  Scenario: Marking a decision clears the question
-    Given Dhira opens "/tasks/FIX-011"
-    When he presses "Mark as decided"
-    Then the card no longer waits for his decision
-    And the history of "FIX-011" shows "waiting: Approve the fixture? → —" by "dhira"
+  Scenario: Marking everything seen empties what's new
+    Given Dhira opens "/"
+    When he presses "Mark all seen"
+    Then the first heading is "Nothing new"
+
+  Scenario: Answering a question with one press records the decision for the agent
+    Given Dhira opens "/"
+    When he answers "Rework the plan" for "FIX-011"
+    Then he no longer sees "Approve the fixture?"
+    And the history of "FIX-011" shows "decided “Rework the plan” on: Approve the fixture?" by "you"
+
+  Scenario: A free-text answer
+    Given Dhira opens "/tasks/FIX-015"
+    When he writes the answer "Yes, after the review" for "FIX-015"
+    Then the history of "FIX-015" shows "decided “Yes, after the review” on: Ship it?" by "you"
+
+  Scenario: A document in review is approved from the cockpit
+    Given Dhira opens "/"
+    When he approves the document "PRD900"
+    Then Dhira opens "/docs/PRD900"
+    And the document shows the status "Approved"
+
+  Scenario: A number opens the cards behind it
+    Given Dhira opens "/"
+    When he opens the stat "Blocked"
+    Then he sees "Showing blocked cards."
+    And card "FIX-012" is in the column "backlog"
+
+  Scenario: A card opens in the side panel and moves one stage on
+    Given Dhira opens "/board"
+    When he opens card "FIX-016" in the panel
+    Then the panel shows "Card for the panel"
+    When he presses "Plan in Progress →"
+    Then card "FIX-016" is in the column "plan"
+
+  Scenario: An agent's change appears without reloading
+    Given Dhira opens "/board"
+    When the agent "go-engineer" moves "FIX-013" to "wip"
+    Then card "FIX-013" appears in the column "wip" without a reload
+
+  Scenario: Typing is never lost to a live refresh
+    Given Dhira opens "/tasks/new"
+    When he types "Half-written title" into "Title" and clicks away
+    And the agent "go-engineer" moves "FIX-012" to "todo"
+    Then after the next refresh "Title" still holds "Half-written title"
+
+  Scenario: The palette finds a card by keyboard
+    Given Dhira opens "/"
+    When he presses Command-K and types "blocked"
+    And he presses Enter
+    Then he is on the page of card "FIX-012"
 
   Scenario: Dragging a card to another column moves it
     Given Dhira opens "/board"
     When he drags card "FIX-010" to the column "plan"
     Then card "FIX-010" is in the column "plan"
-    And the history of "FIX-010" shows "moved TODO → Plan in Progress" by "dhira"
+    And the history of "FIX-010" shows "moved TODO → Plan in Progress" by "you"
 
-  Scenario: A card moves with the keyboard from its page
+  Scenario: A card moves to any stage with the keyboard from its page
     Given Dhira opens "/tasks/FIX-013"
-    When he chooses "QA in Progress" as the new status and presses "Move"
+    When he chooses "QA in Progress" as another stage
     Then the card shows the status "QA in Progress"
 
   Scenario: A new card takes the next number of its prefix
     Given Dhira opens "/tasks/new"
     When he fills "Prefix for the next number" with "FIX" and "Title" with "Made in the browser" and presses "Save"
-    Then he is on the page of card "FIX-014"
-    And the history of "FIX-014" shows "created in Backlog" by "dhira"
+    Then he is on the page of card "FIX-017"
+    And the history of "FIX-017" shows "created in Backlog" by "you"
 
   Scenario: A refused card comes back with the reason
     Given Dhira opens "/tasks/new"
     When he fills "Prefix for the next number" with "FIX" and "Title" with "Bad dependency" and "Depends on" with "NOPE-1" and presses "Save"
     Then he sees "dependency NOPE-1 does not exist"
 
-  Scenario: A document shows its chain and takes a review status
+  Scenario: A document shows its contents, chain and history, and takes a review status
     Given Dhira opens "/docs/PRD900"
-    Then he sees the chain "Serves" with "BRD900" and "OKR-2026Q4"
+    Then the contents list "Goals" and "Measures"
+    And he sees the chain "Serves" with "BRD900" and "OKR-2026Q4"
     And he sees the chain "Served by" with "TRD900"
     When he sets the review status to "Approved"
     Then the document shows the status "Approved"

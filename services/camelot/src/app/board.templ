@@ -1,7 +1,6 @@
 package app
 
 import (
-	"github.com/axadrn/shadcn-templ/v2/components/badge"
 	"github.com/axadrn/shadcn-templ/v2/components/button"
 	"github.com/axadrn/shadcn-templ/v2/components/field"
 	"github.com/axadrn/shadcn-templ/v2/components/input"
@@ -28,8 +27,45 @@ type BoardFilter struct {
 	Type      string
 	Milestone string
 	Query     string
+	Status    string
 	Waiting   bool
+	Blocked   bool
+	Stale     bool
 	AllDone   bool
+}
+
+// Narrowed reports whether the filter hides cards (the board then says so and offers to clear it).
+func (f BoardFilter) Narrowed() bool {
+	return f.Type != "" || f.Milestone != "" || f.Query != "" || f.Status != "" || f.Waiting || f.Blocked || f.Stale
+}
+
+// describe says what the filter keeps, in words.
+func (f BoardFilter) describe() string {
+	var parts []string
+	if f.Blocked {
+		parts = append(parts, "blocked cards")
+	}
+	if f.Stale {
+		parts = append(parts, "stale cards")
+	}
+	if f.Waiting {
+		parts = append(parts, "cards waiting on you")
+	}
+	if f.Status != "" {
+		if s, err := taskmodel.ParseStatus(f.Status); err == nil {
+			parts = append(parts, "cards in "+s.Label())
+		}
+	}
+	if f.Type != "" {
+		parts = append(parts, "type "+f.Type)
+	}
+	if f.Milestone != "" {
+		parts = append(parts, "milestone "+f.Milestone)
+	}
+	if f.Query != "" {
+		parts = append(parts, "matching “"+f.Query+"”")
+	}
+	return joinWords(parts)
 }
 
 // BoardProps is the board page.
@@ -41,118 +77,149 @@ type BoardProps struct {
 	DoneLimit  int
 }
 
-// Board is the Kanban board: a GET filter, then one column per status.
-// Dragging a tile onto a column moves it (js/board.js posts the hidden
-// move form); without script, a card's page moves it.
+// Board is the Kanban board: a GET filter, then one column per stage (an
+// empty one narrow). Dragging a tile onto a column moves it (js/board.js);
+// a tile's title opens the card in the side panel (js/panel.js), its page
+// without script.
 templ Board(p BoardProps) {
 	@Layout("Board", NavBoard, "js/board.js") {
-		@PageHeader("Board", itoa(p.Total)+" cards shown · drag a card to another column to move it, or open it to move it with the keyboard") {
+		@PageHeader("Board", itoa(p.Total)+" cards · drag a card to move it, or open it to move it with the keyboard") {
 		}
-		<form method="get" action="/board" class="grid gap-3 rounded-xl border p-3 sm:grid-cols-[2fr_1fr_1fr_auto_auto] sm:items-end" aria-label="Filter the board">
-			@field.Field() {
-				@field.Label(field.LabelProps{For: "q"}) {
-					Search
-				}
-				@input.Input(input.Props{ID: "q", Name: "q", Type: "search", Value: p.Filter.Query, Placeholder: "ID or title"})
-			}
-			@field.Field() {
-				@field.Label(field.LabelProps{For: "type"}) {
-					Type
-				}
-				@nativeselect.NativeSelect(nativeselect.Props{ID: "type", Name: "type", Class: "w-full"}) {
-					@nativeselect.Option(nativeselect.OptionProps{Value: "", Selected: p.Filter.Type == ""}) {
-						All but milestones
+		if p.Filter.Narrowed() {
+			<p class="flex flex-wrap items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm" role="status">
+				Showing { p.Filter.describe() }.
+				<a href="/board" class="font-medium underline underline-offset-4">Show all cards</a>
+			</p>
+		}
+		<details class="rounded-xl border" open?={ p.Filter.Type != "" || p.Filter.Milestone != "" || p.Filter.Query != "" }>
+			<summary class="cursor-pointer px-3 py-2 text-sm font-medium">Filter</summary>
+			<form method="get" action="/board" class="grid gap-3 border-t p-3 sm:grid-cols-[2fr_1fr_1fr_auto_auto] sm:items-end" aria-label="Filter the board">
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "q"}) {
+						Search
 					}
-					for _, t := range taskmodel.Types {
-						@nativeselect.Option(nativeselect.OptionProps{Value: string(t), Selected: p.Filter.Type == string(t)}) {
-							{ string(t) }
+					@input.Input(input.Props{ID: "q", Name: "q", Type: "search", Value: p.Filter.Query, Placeholder: "ID or title"})
+				}
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "type"}) {
+						Type
+					}
+					@nativeselect.NativeSelect(nativeselect.Props{ID: "type", Name: "type", Class: "w-full"}) {
+						@nativeselect.Option(nativeselect.OptionProps{Value: "", Selected: p.Filter.Type == ""}) {
+							All but milestones
+						}
+						for _, t := range taskmodel.Types {
+							@nativeselect.Option(nativeselect.OptionProps{Value: string(t), Selected: p.Filter.Type == string(t)}) {
+								{ string(t) }
+							}
 						}
 					}
 				}
-			}
-			@field.Field() {
-				@field.Label(field.LabelProps{For: "milestone"}) {
-					Milestone
-				}
-				@nativeselect.NativeSelect(nativeselect.Props{ID: "milestone", Name: "milestone", Class: "w-full"}) {
-					@nativeselect.Option(nativeselect.OptionProps{Value: "", Selected: p.Filter.Milestone == ""}) {
-						All
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "milestone"}) {
+						Milestone
 					}
-					for _, m := range p.Milestones {
-						@nativeselect.Option(nativeselect.OptionProps{Value: m.ID, Selected: p.Filter.Milestone == m.ID}) {
-							{ m.ID } · { m.Title }
+					@nativeselect.NativeSelect(nativeselect.Props{ID: "milestone", Name: "milestone", Class: "w-full"}) {
+						@nativeselect.Option(nativeselect.OptionProps{Value: "", Selected: p.Filter.Milestone == ""}) {
+							All
+						}
+						for _, m := range p.Milestones {
+							@nativeselect.Option(nativeselect.OptionProps{Value: m.ID, Selected: p.Filter.Milestone == m.ID}) {
+								{ m.ID } · { m.Title }
+							}
 						}
 					}
 				}
-			}
-			<label class="flex h-9 items-center gap-2 text-sm">
-				<input type="checkbox" name="waiting" value="1" checked?={ p.Filter.Waiting } class="size-4 accent-primary"/>
-				Waiting on me
-			</label>
-			@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline}) {
-				Filter
-			}
-		</form>
+				<label class="flex h-9 items-center gap-2 text-sm">
+					<input type="checkbox" name="waiting" value="1" checked?={ p.Filter.Waiting } class="size-4 accent-primary"/>
+					Waiting on me
+				</label>
+				@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline}) {
+					Filter
+				}
+			</form>
+		</details>
 		<form id="board-move" method="post" action="/board" class="hidden">
 			<input type="hidden" name="status" value=""/>
 			<input type="hidden" name="updated_at" value=""/>
 			<input type="hidden" name="return" value="board"/>
 		</form>
 		<div class="-mx-3 overflow-x-auto px-3 pb-2 sm:-mx-6 sm:px-6" tabindex="0" role="region" aria-label="Board columns">
-			<div class="grid min-w-[1200px] grid-cols-7 gap-3">
+			<div class="flex gap-3">
 				for _, col := range p.Columns {
-					<section data-column={ string(col.Status) } class="flex min-h-40 flex-col gap-2 rounded-xl bg-muted/50 p-2 ring-series-1 transition" aria-labelledby={ "col-" + string(col.Status) }>
-						<header class="flex items-center justify-between px-1 pt-1">
-							<h2 id={ "col-" + string(col.Status) } class="text-sm font-semibold">{ col.Status.Label() }</h2>
-							<span class="text-xs tabular-nums text-muted-foreground" title={ col.Status.Stage() }>{ itoa(len(col.Cards) + col.Hidden) }</span>
-						</header>
-						for _, bc := range col.Cards {
-							@cardTile(bc)
-						}
-						if col.Hidden > 0 {
-							<a href="/board?all_done=1" class="px-1 text-xs text-muted-foreground underline underline-offset-4">{ itoa(col.Hidden) } older Done cards hidden · show all</a>
-						}
-					</section>
+					@boardColumn(col)
 				}
 			</div>
 		</div>
 	}
 }
 
-// cardTile is one card on the board.
+// boardColumn is one stage: its colour and label, count, and tiles; narrow when empty.
+templ boardColumn(col BoardColumn) {
+	{{ isEmpty := len(col.Cards) == 0 && col.Hidden == 0 }}
+	<section data-column={ string(col.Status) } class={ "flex min-h-40 shrink-0 flex-col gap-2 rounded-xl bg-muted/50 p-2 ring-series-1 transition", templ.KV("min-w-48 max-w-80 flex-1 basis-0", !isEmpty), templ.KV("w-28", isEmpty) } aria-labelledby={ "col-" + string(col.Status) }>
+		<header class="flex items-center justify-between gap-2 px-1 pt-1">
+			<h2 id={ "col-" + string(col.Status) } class="flex items-center gap-1.5 text-sm font-semibold">
+				<span aria-hidden="true" class={ "size-2 shrink-0 rounded-full", stageDot(col.Status) }></span>
+				{ col.Status.Label() }
+			</h2>
+			<span class="text-xs tabular-nums text-muted-foreground" title={ col.Status.Stage() }>{ itoa(len(col.Cards) + col.Hidden) }</span>
+		</header>
+		if isEmpty {
+			<p class="px-1 text-xs text-muted-foreground">Empty</p>
+		}
+		for _, bc := range col.Cards {
+			@cardTile(bc)
+		}
+		if col.Hidden > 0 {
+			<a href="/board?all_done=1" class="px-1 text-xs text-muted-foreground underline underline-offset-4">{ itoa(col.Hidden) } older Done cards hidden · show all</a>
+		}
+	</section>
+}
+
+// cardTile is one card on the board: the title first, then what to notice.
 templ cardTile(bc BoardCard) {
 	{{ c := bc.Card }}
-	<article data-card={ c.ID } data-status={ string(c.Status) } data-updated={ ISO(c.UpdatedAt) } class="grid cursor-grab gap-2 rounded-lg border bg-card p-2.5 text-sm shadow-xs active:cursor-grabbing">
-		<div class="flex items-center justify-between gap-2">
-			<span class="font-mono text-xs text-muted-foreground">{ c.ID }</span>
-			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
-				{ string(c.Type) }
+	<article data-card={ c.ID } data-status={ string(c.Status) } data-updated={ ISO(c.UpdatedAt) } class="grid cursor-grab gap-1.5 rounded-lg border bg-card p-2.5 text-sm shadow-xs active:cursor-grabbing">
+		<a href={ TaskHref(c.ID) } class="font-medium leading-snug hover:underline" data-panel={ c.ID }>{ c.Title }</a>
+		<p class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+			<span class="font-mono">{ c.ID }</span>
+			<span>{ string(c.Type) }</span>
+			if c.MilestoneID != "" {
+				<span>{ c.MilestoneID }</span>
 			}
-		</div>
-		<a href={ TaskHref(c.ID) } class="font-medium leading-snug hover:underline">{ c.Title }</a>
-		if c.Waiting != "" || bc.Blocked || c.MilestoneID != "" || c.Assignee != "" {
-			<div class="flex flex-wrap gap-1">
+			if c.Assignee != "" {
+				<span>{ "@" + c.Assignee }</span>
+			}
+		</p>
+		if c.Waiting != "" || bc.Blocked {
+			<p class="flex flex-wrap gap-x-3 text-xs font-medium">
 				if c.Waiting != "" {
-					@badge.Badge(badge.Props{Variant: badge.VariantDestructive, Attributes: templ.Attributes{"title": c.Waiting}}) {
-						Waiting on you
-					}
+					<span class="text-status-critical" title={ c.Waiting }>● Waiting on you</span>
 				}
 				if bc.Blocked {
-					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
-						Blocked
-					}
+					<span class="text-muted-foreground">⛔ Blocked</span>
 				}
-				if c.MilestoneID != "" {
-					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
-						{ c.MilestoneID }
-					}
-				}
-				if c.Assignee != "" {
-					@badge.Badge(badge.Props{Variant: badge.VariantGhost}) {
-						{ "@" + c.Assignee }
-					}
-				}
-			</div>
+			</p>
 		}
 	</article>
+}
+
+// joinWords joins phrases with commas and a final "and".
+func joinWords(parts []string) string {
+	switch len(parts) {
+	case 0:
+		return "all cards"
+	case 1:
+		return parts[0]
+	}
+	out := parts[0]
+	for i, p := range parts[1:] {
+		if i == len(parts)-2 {
+			out += " and " + p
+		} else {
+			out += ", " + p
+		}
+	}
+	return out
 }
