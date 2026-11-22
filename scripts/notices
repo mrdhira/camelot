@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Prints the license and notice files of every third-party Go module
+# compiled into the camelot binary, and of the vendored font: the notices
+# a binary or image distribution must carry (scripts/notices > THIRD_PARTY_NOTICES.md).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+echo "# Third-party notices"
+echo
+echo "Camelot's binary and image include the following software, under the licenses reproduced here."
+go list -deps -f '{{with .Module}}{{if not .Main}}{{.Path}} {{.Version}}{{end}}{{end}}' ./services/camelot | sort -u |
+  while read -r path version; do
+    dir=$(go list -m -f '{{.Dir}}' "$path")
+    found=0
+    for f in "$dir"/*; do
+      case "$(basename "$f" | tr '[:upper:]' '[:lower:]')" in
+        license* | licence* | copying* | notice*)
+          printf '\n## %s %s: %s\n\n```text\n' "$path" "$version" "$(basename "$f")"
+          cat "$f"
+          printf '\n```\n'
+          found=1
+          ;;
+      esac
+    done
+    [ "$found" = 1 ] || { echo "notices: no license file in $path $version" >&2; exit 1; }
+  done
+printf '\n## Geist font (Vercel): OFL-Geist.txt\n\n```text\n'
+cat services/camelot/src/assets/vendor/OFL-Geist.txt
+printf '\n```\n'
