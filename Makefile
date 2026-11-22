@@ -89,7 +89,7 @@ check: ## quality gate: fmt, vet, lint, tidy, templ + css freshness, vendor pins
 
 .PHONY: e2e
 e2e: build ## Playwright against a server on a throwaway copy of the fixture vault
-	cd tests/playwright && pnpm install --frozen-lockfile && pnpm exec playwright test
+	cd tests/playwright && pnpm install --frozen-lockfile && pnpm exec bddgen && pnpm exec playwright test
 
 .PHONY: scan
 scan: ## secret scan (gitleaks $(GITLEAKS)): staged changes, the full history, and no absolute home paths; run before every push

@@ -21,10 +21,13 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 COPY services/ services/
+COPY LICENSE.md scripts/notices ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
-    go build -trimpath -ldflags "-s -w -X github.com/mrdhira/camelot/services/camelot/cmd.Version=${VERSION}" -o /out/camelot ./services/camelot
+    go build -trimpath -ldflags "-s -w -X github.com/mrdhira/camelot/services/camelot/cmd.Version=${VERSION}" -o /out/camelot ./services/camelot && \
+    mkdir -p scripts && mv notices scripts/ && \
+    GOOS="$TARGETOS" GOARCH="$TARGETARCH" scripts/notices > /out/THIRD_PARTY_NOTICES.md && cp LICENSE.md /out/
 
 FROM scratch AS runtime
 ARG VERSION=unknown
@@ -34,7 +37,7 @@ LABEL org.opencontainers.image.title="camelot" \
       org.opencontainers.image.version="$VERSION" \
       org.opencontainers.image.revision="$REVISION"
 COPY --from=build /rootfs/ /
-COPY --from=build /out/camelot /app/camelot
+COPY --from=build /out/ /app/
 USER 65532:65532
 ENTRYPOINT ["/app/camelot"]
 CMD ["serve"]
